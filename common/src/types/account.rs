@@ -7,5 +7,7 @@ use super::slot_identifier::SlotIdentifier;
 pub struct Account {
     pub slot_identifier: SlotIdentifier,
     pub pubkey: Pubkey,
+    pub owner: Pubkey,
+    pub write_version: u64,
     pub data: Vec<u8>,
 }

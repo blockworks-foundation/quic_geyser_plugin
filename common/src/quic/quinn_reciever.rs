@@ -30,10 +30,10 @@ pub async fn recv_message(mut recv_stream: RecvStream) -> anyhow::Result<Message
     }
 }
 
+#[cfg(test)]
 mod tests {
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
-        str::FromStr,
         sync::Arc,
     };
 
@@ -77,6 +77,8 @@ mod tests {
                 blockhash: Hash::new_unique(),
             },
             pubkey: Pubkey::new_unique(),
+            owner: Pubkey::new_unique(),
+            write_version: 0,
             data: vec![6; 2],
         };
         let message = Message::AccountMsg(account);
@@ -88,12 +90,15 @@ mod tests {
                 let endpoint = configure_client(&Keypair::new(), 1).await.unwrap();
 
                 let connecting = endpoint
-                    .connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port), "tmp")
+                    .connect(
+                        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
+                        "tmp",
+                    )
                     .unwrap();
                 let connection = connecting.await.unwrap();
                 let recv_stream = connection.accept_uni().await.unwrap();
                 let recved_message = recv_message(recv_stream).await.unwrap();
-                 // assert if sent and recieved message match
+                // assert if sent and recieved message match
                 assert_eq!(sent_message, recved_message);
             })
         };
@@ -134,7 +139,9 @@ mod tests {
                 blockhash: Hash::new_unique(),
             },
             pubkey: Pubkey::new_unique(),
-            data: vec![6; 100_000_000],
+            owner: Pubkey::new_unique(),
+            write_version: 0,
+            data: vec![9; 100_000_000],
         };
         let message = Message::AccountMsg(account);
 
@@ -145,7 +152,10 @@ mod tests {
                 let endpoint = configure_client(&Keypair::new(), 0).await.unwrap();
 
                 let connecting = endpoint
-                    .connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port), "tmp")
+                    .connect(
+                        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
+                        "tmp",
+                    )
                     .unwrap();
                 let connection = connecting.await.unwrap();
                 let send_stream = connection.open_uni().await.unwrap();
@@ -163,5 +173,4 @@ mod tests {
         assert_eq!(message, recved_message);
         endpoint.close(VarInt::from_u32(0), b"");
     }
-
 }

@@ -34,8 +34,8 @@ pub fn configure_server(
     server_config.use_retry(true);
     let config = Arc::get_mut(&mut server_config.transport).unwrap();
 
-    config.max_concurrent_uni_streams((max_concurrent_streams as u32).into());
-    let recv_size = (recieve_window_size as u32).into();
+    config.max_concurrent_uni_streams((max_concurrent_streams).into());
+    let recv_size = recieve_window_size.into();
     config.stream_receive_window(recv_size);
     config.receive_window(recv_size);
 
@@ -44,7 +44,7 @@ pub fn configure_server(
     config.max_idle_timeout(Some(timeout));
 
     // disable bidi & datagrams
-    config.max_concurrent_bidi_streams(max_concurrent_streams.into());
+    config.max_concurrent_bidi_streams(0u32.into());
     config.datagram_receive_buffer_size(None);
 
     Ok((server_config, cert_chain_pem))
