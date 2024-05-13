@@ -3,9 +3,9 @@ use solana_sdk::pubkey::Pubkey;
 
 use super::slot_identifier::SlotIdentifier;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Account {
-    slot_identifier: SlotIdentifier,
-    pubkey: Pubkey,
-    data: Vec<u8>,
+    pub slot_identifier: SlotIdentifier,
+    pub pubkey: Pubkey,
+    pub data: Vec<u8>,
 }

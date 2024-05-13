@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use solana_sdk::hash::Hash;
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SlotIdentifier {
-    slot: u64,
-    blockhash : Hash,
+    pub slot: u64,
+    pub blockhash: Hash,
 }

@@ -3,12 +3,14 @@ use std::{net::IpAddr, sync::Arc, time::Duration};
 use pem::Pem;
 use quinn::{IdleTimeout, ServerConfig};
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
-use solana_streamer::{quic::QuicServerError, tls_certificates::{get_pubkey_from_tls_certificate, new_self_signed_tls_certificate}};
+use solana_streamer::{
+    quic::QuicServerError,
+    tls_certificates::{get_pubkey_from_tls_certificate, new_self_signed_tls_certificate},
+};
 
-use super::skip_client_verification::SkipClientVerification;
+use super::skip_verification::ServerSkipClientVerification;
 
 pub const ALPN_GEYSER_PROTOCOL_ID: &[u8] = b"quic_geyser_plugin";
-
 
 pub fn configure_server(
     identity_keypair: &Keypair,
@@ -24,7 +26,7 @@ pub fn configure_server(
 
     let mut server_tls_config = rustls::ServerConfig::builder()
         .with_safe_defaults()
-        .with_client_cert_verifier(SkipClientVerification::new())
+        .with_client_cert_verifier(ServerSkipClientVerification::new())
         .with_single_cert(vec![cert], priv_key)?;
     server_tls_config.alpn_protocols = vec![ALPN_GEYSER_PROTOCOL_ID.to_vec()];
 
@@ -32,11 +34,11 @@ pub fn configure_server(
     server_config.use_retry(true);
     let config = Arc::get_mut(&mut server_config.transport).unwrap();
 
-    config.max_concurrent_uni_streams((0 as u32).into());
+    config.max_concurrent_uni_streams((max_concurrent_streams as u32).into());
     let recv_size = (recieve_window_size as u32).into();
     config.stream_receive_window(recv_size);
     config.receive_window(recv_size);
-    
+
     let timeout = Duration::from_secs(connection_timeout);
     let timeout = IdleTimeout::try_from(timeout).unwrap();
     config.max_idle_timeout(Some(timeout));

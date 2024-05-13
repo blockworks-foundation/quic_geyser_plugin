@@ -1,4 +1,8 @@
-use std::{fs::read_to_string, net::{Ipv4Addr, SocketAddr, SocketAddrV4}, path::Path};
+use std::{
+    fs::read_to_string,
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    path::Path,
+};
 
 use agave_geyser_plugin_interface::geyser_plugin_interface::GeyserPluginError;
 use quic_geyser_common::compression::CompressionType;
@@ -31,17 +35,16 @@ pub struct ConfigQuicPlugin {
     #[serde(default = "ConfigQuicPlugin::default_address")]
     pub address: SocketAddr,
     #[serde(default)]
-    pub quic_parameters : QuicParameters,
+    pub quic_parameters: QuicParameters,
     #[serde(default)]
     pub compression_parameters: CompressionParameters,
 }
 
 impl ConfigQuicPlugin {
-    fn default_address()-> SocketAddr {
+    fn default_address() -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 10800))
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuicParameters {
@@ -50,8 +53,8 @@ pub struct QuicParameters {
 
 impl Default for QuicParameters {
     fn default() -> Self {
-        Self { 
-            max_number_of_streams_per_client: 4096 
+        Self {
+            max_number_of_streams_per_client: 4096,
         }
     }
 }

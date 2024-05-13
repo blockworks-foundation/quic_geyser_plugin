@@ -1,2 +1,2 @@
-pub mod quic;
 pub mod config;
+pub mod quic;

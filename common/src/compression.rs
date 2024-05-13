@@ -8,7 +8,7 @@ pub enum CompressionType {
 }
 
 impl Default for CompressionType {
-    fn default() -> Self{
+    fn default() -> Self {
         Self::Lz4Fast(8)
     }
 }

@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 solana-sdk = { workspace = "true" }
 solana-streamer = { workspace = "true" }
+solana-net-utils = { workspace = "true" }
 serde = { workspace = "true" }
 bincode = { workspace = "true" }
 lz4 = { workspace = "true" }
@@ -16,5 +17,6 @@ rustls = { workspace = "true", default-features = false }
 pem = { workspace = "true" }
 anyhow = { workspace = "true" }
 tokio = { workspace = "true" }
+log = { workspace = "true" }
 
 [dev-dependencies]
