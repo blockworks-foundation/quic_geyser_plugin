@@ -85,26 +85,25 @@ mod tests {
             let sent_message = message.clone();
 
             tokio::spawn(async move {
-                let endpoint = configure_client(&Keypair::new()).await.unwrap();
+                let endpoint = configure_client(&Keypair::new(), 1).await.unwrap();
 
                 let connecting = endpoint
                     .connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port), "tmp")
                     .unwrap();
                 let connection = connecting.await.unwrap();
-                let send_stream = connection.open_uni().await.unwrap();
-                send_message(send_stream, sent_message).await.unwrap();
+                let recv_stream = connection.accept_uni().await.unwrap();
+                let recved_message = recv_message(recv_stream).await.unwrap();
+                 // assert if sent and recieved message match
+                assert_eq!(sent_message, recved_message);
             })
         };
 
         let connecting = endpoint.accept().await.unwrap();
         let connection = connecting.await.unwrap();
-        let recv_stream = connection.accept_uni().await.unwrap();
 
-        let recved_message = recv_message(recv_stream).await.unwrap();
+        let send_stream = connection.open_uni().await.unwrap();
+        send_message(send_stream, message).await.unwrap();
         jh.await.unwrap();
-        // assert if sent and recieved message match
-        assert_eq!(message, recved_message);
-        endpoint.close(VarInt::from_u32(0), b"");
     }
 
     #[tokio::test]
@@ -143,7 +142,7 @@ mod tests {
             let sent_message = message.clone();
 
             tokio::spawn(async move {
-                let endpoint = configure_client(&Keypair::new()).await.unwrap();
+                let endpoint = configure_client(&Keypair::new(), 0).await.unwrap();
 
                 let connecting = endpoint
                     .connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port), "tmp")
