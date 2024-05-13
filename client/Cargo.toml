@@ -6,3 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+quinn = { workspace = "true" }
+solana-sdk = { workspace = "true" }
+anyhow = { workspace = "true" }
+futures = { workspace = "true" }
+async-stream = { workspace = "true" }
+tokio = { workspace = "true" }
+log = { workspace = "true" }
+
+quic-geyser-common = { path = "../common" }
