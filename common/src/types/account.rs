@@ -55,7 +55,7 @@ impl Account {
         };
         Account {
             slot_identifier,
-            pubkey: pubkey,
+            pubkey,
             owner: solana_account.owner,
             write_version,
             data,

@@ -9,11 +9,16 @@ use quic_geyser_common::{
     message::Message,
     quic::{configure_server::configure_server, connection_manager::ConnectionManager},
     types::{
-        account::Account as GeyserAccount, block_meta::BlockMeta, slot_identifier::SlotIdentifier,
+        account::Account as GeyserAccount,
+        block_meta::{BlockMeta, SlotMeta},
+        slot_identifier::SlotIdentifier,
     },
 };
 use quinn::{Endpoint, EndpointConfig, TokioRuntime};
-use solana_sdk::{account::Account, clock::Slot, pubkey::Pubkey, signature::Keypair};
+use solana_sdk::{
+    account::Account, clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey,
+    signature::Keypair,
+};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{config::Config, plugin_error::QuicGeyserError};
@@ -26,7 +31,7 @@ pub struct AccountData {
 
 pub enum ChannelMessage {
     Account(AccountData, Slot, bool),
-    Slot(u64),
+    Slot(u64, u64, CommitmentLevel),
     BlockMeta(BlockMeta),
 }
 
@@ -85,8 +90,12 @@ impl QuicServer {
                                 );
                             }
                         }
-                        ChannelMessage::Slot(slot) => {
-                            let message = Message::SlotMsg(slot);
+                        ChannelMessage::Slot(slot, parent, commitment_level) => {
+                            let message = Message::SlotMsg(SlotMeta {
+                                slot,
+                                parent,
+                                commitment_level,
+                            });
                             quic_connection_manager.dispach(message, retry_count).await;
                         }
                         ChannelMessage::BlockMeta(block_meta) => {

@@ -2,12 +2,16 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
     ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
 };
-use solana_sdk::{account::Account, clock::Slot, pubkey::Pubkey, signature::Keypair};
+use quic_geyser_common::types::block_meta::BlockMeta;
+use solana_sdk::{
+    account::Account, clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey,
+    signature::Keypair,
+};
 
 use crate::{
     config::Config,
     plugin_error::QuicGeyserError,
-    quic::quic_server::{AccountData, QuicServer},
+    quic::quic_server::{AccountData, ChannelMessage, QuicServer},
 };
 
 #[derive(Debug, Default)]
@@ -57,7 +61,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
             rent_epoch: account_info.rent_epoch,
         };
         let pubkey: Pubkey = Pubkey::try_from(account_info.pubkey).expect("valid pubkey");
-        quic_server.send_message(crate::quic::quic_server::ChannelMessage::Account(
+        quic_server.send_message(ChannelMessage::Account(
             AccountData {
                 pubkey,
                 account,
@@ -75,11 +79,21 @@ impl GeyserPlugin for QuicGeyserPlugin {
 
     fn update_slot_status(
         &self,
-        _slot: Slot,
-        _parent: Option<u64>,
-        _status: SlotStatus,
+        slot: Slot,
+        parent: Option<u64>,
+        status: SlotStatus,
     ) -> PluginResult<()> {
         // Todo
+        let Some(quic_server) = &self.quic_server else {
+            return Ok(());
+        };
+        let commitment_level = match status {
+            SlotStatus::Processed => CommitmentLevel::Processed,
+            SlotStatus::Rooted => CommitmentLevel::Finalized,
+            SlotStatus::Confirmed => CommitmentLevel::Confirmed,
+        };
+        let slot_message = ChannelMessage::Slot(slot, parent.unwrap_or_default(), commitment_level);
+        quic_server.send_message(slot_message)?;
         Ok(())
     }
 
@@ -97,8 +111,29 @@ impl GeyserPlugin for QuicGeyserPlugin {
         Ok(())
     }
 
-    fn notify_block_metadata(&self, _blockinfo: ReplicaBlockInfoVersions) -> PluginResult<()> {
-        // Todo
+    fn notify_block_metadata(&self, blockinfo: ReplicaBlockInfoVersions) -> PluginResult<()> {
+        let Some(quic_server) = &self.quic_server else {
+            return Ok(());
+        };
+
+        let ReplicaBlockInfoVersions::V0_0_3(blockinfo) = blockinfo else {
+            return Err(GeyserPluginError::AccountsUpdateError {
+                msg: "Unsupported account info version".to_string(),
+            });
+        };
+
+        let block_meta = BlockMeta {
+            parent_slot: blockinfo.parent_slot,
+            slot: blockinfo.slot,
+            parent_blockhash: blockinfo.parent_blockhash.to_string(),
+            blockhash: blockinfo.blockhash.to_string(),
+            rewards: blockinfo.rewards.to_vec(),
+            block_height: blockinfo.block_height,
+            executed_transaction_count: blockinfo.executed_transaction_count,
+            entries_count: blockinfo.entry_count,
+        };
+
+        quic_server.send_message(ChannelMessage::BlockMeta(block_meta))?;
         Ok(())
     }
 

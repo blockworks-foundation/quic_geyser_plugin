@@ -16,14 +16,8 @@ impl Filter {
     pub fn allows(&self, message: &Message) -> bool {
         match &self {
             Filter::Account(account) => account.allows(message),
-            Filter::Slot => match message {
-                Message::SlotMsg(_) => true,
-                _ => false,
-            },
-            Filter::BlockMeta => match message {
-                Message::BlockMetaMsg(_) => true,
-                _ => false,
-            },
+            Filter::Slot => matches!(message, Message::SlotMsg(_)),
+            Filter::BlockMeta => matches!(message, Message::BlockMetaMsg(_)),
         }
     }
 }
