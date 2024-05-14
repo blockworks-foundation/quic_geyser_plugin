@@ -1,0 +1,3 @@
+{
+  "libpath": "target/debug/libquic_geyser_plugin.so"
+}
