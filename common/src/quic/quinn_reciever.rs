@@ -38,7 +38,7 @@ mod tests {
     };
 
     use quinn::{Endpoint, EndpointConfig, TokioRuntime, VarInt};
-    use solana_sdk::{hash::Hash, pubkey::Pubkey, signature::Keypair};
+    use solana_sdk::signature::Keypair;
 
     use crate::{
         message::Message,
@@ -46,7 +46,7 @@ mod tests {
             configure_client::configure_client, configure_server::configure_server,
             quinn_reciever::recv_message, quinn_sender::send_message,
         },
-        types::{account::Account, slot_identifier::SlotIdentifier},
+        types::account::Account,
     };
 
     #[tokio::test]
@@ -71,16 +71,7 @@ mod tests {
         )
         .unwrap();
 
-        let account = Account {
-            slot_identifier: SlotIdentifier {
-                slot: 12345678,
-                blockhash: Hash::new_unique(),
-            },
-            pubkey: Pubkey::new_unique(),
-            owner: Pubkey::new_unique(),
-            write_version: 0,
-            data: vec![6; 2],
-        };
+        let account = Account::get_account_for_test(123456, 2);
         let message = Message::AccountMsg(account);
 
         let jh = {
@@ -133,16 +124,7 @@ mod tests {
         )
         .unwrap();
 
-        let account = Account {
-            slot_identifier: SlotIdentifier {
-                slot: 12345678,
-                blockhash: Hash::new_unique(),
-            },
-            pubkey: Pubkey::new_unique(),
-            owner: Pubkey::new_unique(),
-            write_version: 0,
-            data: vec![9; 100_000_000],
-        };
+        let account = Account::get_account_for_test(123456, 100_000_00);
         let message = Message::AccountMsg(account);
 
         let jh = {

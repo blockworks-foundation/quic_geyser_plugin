@@ -21,8 +21,8 @@ impl Filter {
 // setting owner to 11111111111111111111111111111111 will subscribe to all the accounts
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AccountFilter {
-    owner: Option<Pubkey>,
-    accounts: Option<HashSet<Pubkey>>,
+    pub owner: Option<Pubkey>,
+    pub accounts: Option<HashSet<Pubkey>>,
 }
 
 impl AccountFilter {

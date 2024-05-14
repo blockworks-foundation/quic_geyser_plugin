@@ -79,3 +79,90 @@ impl Client {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{net::{IpAddr, Ipv4Addr, UdpSocket}, sync::Arc};
+
+    use futures::StreamExt;
+    use quic_geyser_common::{filters::{AccountFilter, Filter}, message::Message, quic::{configure_server::configure_server, connection_manager::ConnectionManager}, types::account::Account};
+    use quinn::{Endpoint, EndpointConfig, TokioRuntime};
+    use solana_sdk::{pubkey::Pubkey, signature::Keypair};
+    use tokio::{pin, sync::Notify};
+
+    use crate::client::Client;
+
+    #[tokio::test]
+    pub async fn test_client() {
+        let (config, _) = configure_server(
+            &Keypair::new(),
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            1,
+            100000,
+            1,
+        )
+        .unwrap();
+
+        let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
+        let port = sock.local_addr().unwrap().port();
+        let url = format!("127.0.0.1:{}", port);
+        let notify_server_start = Arc::new(Notify::new());
+        let notify_subscription = Arc::new(Notify::new());
+
+        let msg_acc_1 = Message::AccountMsg(Account::get_account_for_test(0, 2));
+        let msg_acc_2 = Message::AccountMsg(Account::get_account_for_test(1, 20));
+        let msg_acc_3 = Message::AccountMsg(Account::get_account_for_test(2, 100));
+        let msg_acc_4 = Message::AccountMsg(Account::get_account_for_test(3, 1000));
+        let msg_acc_5 = Message::AccountMsg(Account::get_account_for_test(4, 10000));
+        let msgs = [msg_acc_1, msg_acc_2, msg_acc_3, msg_acc_4, msg_acc_5];
+
+        {
+            let msgs = msgs.clone();
+            let notify_server_start = notify_server_start.clone();
+            let notify_subscription = notify_subscription.clone();
+            tokio::spawn(async move {
+                let endpoint = Endpoint::new(
+                    EndpointConfig::default(),
+                    Some(config),
+                    sock,
+                    Arc::new(TokioRuntime),
+                )
+                .unwrap();
+        
+                let (connection_manager, _jh) = ConnectionManager::new(endpoint);
+                notify_server_start.notify_one();
+                notify_subscription.notified().await;
+                for msg in msgs {
+                    connection_manager.dispach(msg, 10).await;
+                }
+            });
+        }
+
+        notify_server_start.notified().await;
+        // server started
+
+        let client = Client::new(url, &Keypair::new(), 1024).await.unwrap();
+        client.subscribe(vec![Filter::Account(AccountFilter{
+            owner: Some(Pubkey::default()),
+            accounts: None,
+        })]).await.unwrap();
+
+        notify_subscription.notify_one();
+
+        let stream = client.get_stream();
+        pin!(stream);
+        for _ in 0..5 {
+            let msg = stream.next().await.unwrap();
+            match &msg {
+                Message::AccountMsg(account) => {
+                    let index = account.slot_identifier.slot as usize;
+                    let sent_message = &msgs[index];
+                    assert_eq!(*sent_message, msg);
+                },
+                _ => {
+                    panic!("should only get account messages")
+                },
+            }
+        }
+    }
+}
