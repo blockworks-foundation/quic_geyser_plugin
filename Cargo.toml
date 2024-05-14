@@ -4,7 +4,8 @@ resolver = "2"
 members = [
     "plugin",
     "client",
-    "common"
+    "common",
+    "tester",
 ]
 
 [workspace.package]
@@ -16,11 +17,11 @@ edition = "2021"
 
 [workspace.dependencies]
 tokio = "1.37.0"
-solana-sdk = "~1.18.11"
-agave-geyser-plugin-interface = "~1.18.11"
-solana-net-utils = "~1.18.11"
-solana-streamer = "~1.18.11"
-solana-transaction-status = "~1.18.11"
+solana-sdk = "~1.17.30"
+agave-geyser-plugin-interface = "~1.17.30"
+solana-net-utils = "~1.17.30"
+solana-streamer = "~1.17.30"
+solana-transaction-status = "~1.17.30"
 
 itertools = "0.10.5"
 serde = "1.0.201"

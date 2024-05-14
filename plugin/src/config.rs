@@ -5,7 +5,9 @@ use std::{
 };
 
 use agave_geyser_plugin_interface::geyser_plugin_interface::GeyserPluginError;
-use quic_geyser_common::compression::CompressionType;
+use quic_geyser_common::{
+    compression::CompressionType, quic::configure_client::DEFAULT_MAX_STREAMS,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +64,7 @@ pub struct QuicParameters {
 impl Default for QuicParameters {
     fn default() -> Self {
         Self {
-            max_number_of_streams_per_client: 1024,
+            max_number_of_streams_per_client: DEFAULT_MAX_STREAMS,
             recieve_window_size: 1_000_000, // 1 Mb
             connection_timeout: 10,         // 10s
         }

@@ -14,6 +14,8 @@ use crate::quic::{
     configure_server::ALPN_GEYSER_PROTOCOL_ID, skip_verification::ClientSkipServerVerification,
 };
 
+pub const DEFAULT_MAX_STREAMS: u32 = 1024;
+
 pub fn create_client_endpoint(
     certificate: rustls::Certificate,
     key: rustls::PrivateKey,

@@ -24,7 +24,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
         "quic_geyser_plugin"
     }
 
-    fn on_load(&mut self, config_file: &str, _is_reload: bool) -> PluginResult<()> {
+    fn on_load(&mut self, config_file: &str) -> PluginResult<()> {
         let config = Config::load_from_file(config_file)?;
         log::info!("Quic plugin config correctly loaded");
         let quic_server = QuicServer::new(Keypair::new(), config).map_err(|_| {
