@@ -7,6 +7,8 @@ edition = "2021"
 solana-sdk = { workspace = "true" }
 solana-streamer = { workspace = "true" }
 solana-net-utils = { workspace = "true" }
+solana-transaction-status = { workspace = "true" }
+
 serde = { workspace = "true" }
 bincode = { workspace = "true" }
 lz4 = { workspace = "true" }

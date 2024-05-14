@@ -82,10 +82,18 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    use std::{net::{IpAddr, Ipv4Addr, UdpSocket}, sync::Arc};
+    use std::{
+        net::{IpAddr, Ipv4Addr, UdpSocket},
+        sync::Arc,
+    };
 
     use futures::StreamExt;
-    use quic_geyser_common::{filters::{AccountFilter, Filter}, message::Message, quic::{configure_server::configure_server, connection_manager::ConnectionManager}, types::account::Account};
+    use quic_geyser_common::{
+        filters::{AccountFilter, Filter},
+        message::Message,
+        quic::{configure_server::configure_server, connection_manager::ConnectionManager},
+        types::account::Account,
+    };
     use quinn::{Endpoint, EndpointConfig, TokioRuntime};
     use solana_sdk::{pubkey::Pubkey, signature::Keypair};
     use tokio::{pin, sync::Notify};
@@ -128,8 +136,8 @@ mod tests {
                     Arc::new(TokioRuntime),
                 )
                 .unwrap();
-        
-                let (connection_manager, _jh) = ConnectionManager::new(endpoint);
+
+                let (connection_manager, _jh) = ConnectionManager::new(endpoint, 2);
                 notify_server_start.notify_one();
                 notify_subscription.notified().await;
                 for msg in msgs {
@@ -141,11 +149,14 @@ mod tests {
         notify_server_start.notified().await;
         // server started
 
-        let client = Client::new(url, &Keypair::new(), 1024).await.unwrap();
-        client.subscribe(vec![Filter::Account(AccountFilter{
-            owner: Some(Pubkey::default()),
-            accounts: None,
-        })]).await.unwrap();
+        let client = Client::new(url, &Keypair::new(), 2).await.unwrap();
+        client
+            .subscribe(vec![Filter::Account(AccountFilter {
+                owner: Some(Pubkey::default()),
+                accounts: None,
+            })])
+            .await
+            .unwrap();
 
         notify_subscription.notify_one();
 
@@ -158,10 +169,10 @@ mod tests {
                     let index = account.slot_identifier.slot as usize;
                     let sent_message = &msgs[index];
                     assert_eq!(*sent_message, msg);
-                },
+                }
                 _ => {
                     panic!("should only get account messages")
-                },
+                }
             }
         }
     }

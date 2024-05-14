@@ -1461,10 +1461,13 @@ dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
  "clap 4.5.4",
+ "log",
  "quic-geyser-common",
+ "quinn",
  "serde",
  "serde_json",
  "solana-sdk",
+ "thiserror",
  "tokio",
 ]
 
@@ -2472,6 +2475,7 @@ dependencies = [
  "solana-net-utils",
  "solana-sdk",
  "solana-streamer",
+ "solana-transaction-status",
  "tokio",
 ]
 

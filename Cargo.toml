@@ -20,6 +20,7 @@ solana-sdk = "~1.18.11"
 agave-geyser-plugin-interface = "~1.18.11"
 solana-net-utils = "~1.18.11"
 solana-streamer = "~1.18.11"
+solana-transaction-status = "~1.18.11"
 
 itertools = "0.10.5"
 serde = "1.0.201"

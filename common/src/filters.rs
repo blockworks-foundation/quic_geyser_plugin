@@ -8,12 +8,22 @@ use crate::message::Message;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum Filter {
     Account(AccountFilter),
+    Slot,
+    BlockMeta,
 }
 
 impl Filter {
     pub fn allows(&self, message: &Message) -> bool {
         match &self {
             Filter::Account(account) => account.allows(message),
+            Filter::Slot => match message {
+                Message::SlotMsg(_) => true,
+                _ => false,
+            },
+            Filter::BlockMeta => match message {
+                Message::BlockMetaMsg(_) => true,
+                _ => false,
+            },
         }
     }
 }

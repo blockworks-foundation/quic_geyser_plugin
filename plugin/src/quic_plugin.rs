@@ -1,7 +1,18 @@
-use agave_geyser_plugin_interface::geyser_plugin_interface::GeyserPlugin;
+use agave_geyser_plugin_interface::geyser_plugin_interface::{
+    GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
+    ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
+};
+use solana_sdk::{account::Account, clock::Slot, pubkey::Pubkey, signature::Keypair};
 
-#[derive(Debug)]
+use crate::{
+    config::Config,
+    plugin_error::QuicGeyserError,
+    quic::quic_server::{AccountData, QuicServer},
+};
+
+#[derive(Debug, Default)]
 pub struct QuicGeyserPlugin {
+    quic_server: Option<QuicServer>,
 }
 
 impl GeyserPlugin for QuicGeyserPlugin {
@@ -9,47 +20,85 @@ impl GeyserPlugin for QuicGeyserPlugin {
         "quic_geyser_plugin"
     }
 
-    fn on_load(&mut self, _config_file: &str, _is_reload: bool) -> Result<()> {
+    fn on_load(&mut self, config_file: &str, _is_reload: bool) -> PluginResult<()> {
+        let config = Config::load_from_file(config_file)?;
+        log::info!("Quic plugin config correctly loaded");
+        let quic_server = QuicServer::new(Keypair::new(), config).map_err(|_| {
+            GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
+        })?;
+        self.quic_server = Some(quic_server);
+
         Ok(())
     }
 
-    fn on_unload(&mut self) {}
+    fn on_unload(&mut self) {
+        self.quic_server = None;
+    }
 
     fn update_account(
         &self,
         account: ReplicaAccountInfoVersions,
         slot: Slot,
         is_startup: bool,
-    ) -> Result<()> {
+    ) -> PluginResult<()> {
+        let Some(quic_server) = &self.quic_server else {
+            return Ok(());
+        };
+        let ReplicaAccountInfoVersions::V0_0_3(account_info) = account else {
+            return Err(GeyserPluginError::AccountsUpdateError {
+                msg: "Unsupported account info version".to_string(),
+            });
+        };
+        let account = Account {
+            lamports: account_info.lamports,
+            data: account_info.data.to_vec(),
+            owner: Pubkey::try_from(account_info.owner).expect("valid pubkey"),
+            executable: account_info.executable,
+            rent_epoch: account_info.rent_epoch,
+        };
+        let pubkey: Pubkey = Pubkey::try_from(account_info.pubkey).expect("valid pubkey");
+        quic_server.send_message(crate::quic::quic_server::ChannelMessage::Account(
+            AccountData {
+                pubkey,
+                account,
+                write_version: account_info.write_version,
+            },
+            slot,
+            is_startup,
+        ))?;
         Ok(())
     }
 
-    fn notify_end_of_startup(&self) -> Result<()> {
+    fn notify_end_of_startup(&self) -> PluginResult<()> {
         Ok(())
     }
 
     fn update_slot_status(
         &self,
-        slot: Slot,
-        parent: Option<u64>,
-        status: SlotStatus,
-    ) -> Result<()> {
+        _slot: Slot,
+        _parent: Option<u64>,
+        _status: SlotStatus,
+    ) -> PluginResult<()> {
+        // Todo
         Ok(())
     }
 
     fn notify_transaction(
         &self,
-        transaction: ReplicaTransactionInfoVersions,
-        slot: Slot,
-    ) -> Result<()> {
+        _transaction: ReplicaTransactionInfoVersions,
+        _slot: Slot,
+    ) -> PluginResult<()> {
+        // Todo
         Ok(())
     }
 
-    fn notify_entry(&self, entry: ReplicaEntryInfoVersions) -> Result<()> {
+    fn notify_entry(&self, _entry: ReplicaEntryInfoVersions) -> PluginResult<()> {
+        // Not required
         Ok(())
     }
 
-    fn notify_block_metadata(&self, blockinfo: ReplicaBlockInfoVersions) -> Result<()> {
+    fn notify_block_metadata(&self, _blockinfo: ReplicaBlockInfoVersions) -> PluginResult<()> {
+        // Todo
         Ok(())
     }
 
@@ -60,8 +109,19 @@ impl GeyserPlugin for QuicGeyserPlugin {
     fn transaction_notifications_enabled(&self) -> bool {
         true
     }
-    
+
     fn entry_notifications_enabled(&self) -> bool {
         false
     }
+}
+
+#[no_mangle]
+#[allow(improper_ctypes_definitions)]
+/// # Safety
+///
+/// This function returns the Plugin pointer as trait GeyserPlugin.
+pub unsafe extern "C" fn _create_plugin() -> *mut dyn GeyserPlugin {
+    let plugin = QuicGeyserPlugin::default();
+    let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
+    Box::into_raw(plugin)
 }

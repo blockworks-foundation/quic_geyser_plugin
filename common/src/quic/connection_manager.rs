@@ -1,26 +1,30 @@
 use quinn::{Connection, Endpoint};
 use std::sync::Arc;
 use std::{collections::VecDeque, time::Duration};
+use tokio::sync::Semaphore;
 use tokio::{sync::RwLock, task::JoinHandle, time::Instant};
 
 use crate::{filters::Filter, message::Message};
 
 use super::{quinn_reciever::recv_message, quinn_sender::send_message};
 
+#[derive(Debug)]
 pub struct ConnectionData {
     pub id: u64,
     pub connection: Connection,
     pub filters: Vec<Filter>,
     pub since: Instant,
+    streams_under_use: Arc<Semaphore>,
 }
 
 impl ConnectionData {
-    pub fn new(id: u64, connection: Connection) -> Self {
+    pub fn new(id: u64, connection: Connection, max_streams_count: usize) -> Self {
         Self {
             id,
             connection,
             filters: vec![],
             since: Instant::now(),
+            streams_under_use: Arc::new(Semaphore::new(max_streams_count)),
         }
     }
 }
@@ -28,12 +32,13 @@ impl ConnectionData {
 /*
     This class will take care of adding connections and filters etc
 */
+#[derive(Debug, Clone)]
 pub struct ConnectionManager {
     connections: Arc<RwLock<VecDeque<ConnectionData>>>,
 }
 
 impl ConnectionManager {
-    pub fn new(endpoint: Endpoint) -> (Self, JoinHandle<()>) {
+    pub fn new(endpoint: Endpoint, max_streams_count: usize) -> (Self, JoinHandle<()>) {
         let connections: Arc<RwLock<VecDeque<ConnectionData>>> =
             Arc::new(RwLock::new(VecDeque::new()));
         // create a task to add incoming connections
@@ -42,7 +47,7 @@ impl ConnectionManager {
             tokio::spawn(async move {
                 let mut id = 0;
                 loop {
-                    // acceept incoming connections
+                    // accept incoming connections
                     if let Some(connecting) = endpoint.accept().await {
                         let connection_result = connecting.await;
                         match connection_result {
@@ -52,7 +57,11 @@ impl ConnectionManager {
                                 let mut lk = connections.write().await;
                                 id += 1;
                                 let current_id = id;
-                                lk.push_back(ConnectionData::new(current_id, connection.clone()));
+                                lk.push_back(ConnectionData::new(
+                                    current_id,
+                                    connection.clone(),
+                                    max_streams_count,
+                                ));
                                 drop(lk);
 
                                 let connections_tmp = connections.clone();
@@ -122,7 +131,14 @@ impl ConnectionManager {
             if connection_data.filters.iter().any(|x| x.allows(&message)) {
                 let connection = connection_data.connection.clone();
                 let message = message.clone();
+                let permit = connection_data
+                    .streams_under_use
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .expect("Should be able to reserve permit");
                 tokio::spawn(async move {
+                    let _permit = permit;
                     for _ in 0..retry_count {
                         let send_stream = connection.open_uni().await;
                         match send_stream {
@@ -147,6 +163,9 @@ impl ConnectionManager {
                             }
                         }
                     }
+                    log::error!(
+                        "Unable to send the message successfully after {retry_count} retries"
+                    );
                 });
             }
         }

@@ -38,28 +38,38 @@ pub struct ConfigQuicPlugin {
     pub quic_parameters: QuicParameters,
     #[serde(default)]
     pub compression_parameters: CompressionParameters,
+    #[serde(default = "ConfigQuicPlugin::default_number_of_retries")]
+    pub number_of_retries: u64,
 }
 
 impl ConfigQuicPlugin {
     fn default_address() -> SocketAddr {
         SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 10800))
     }
+
+    fn default_number_of_retries() -> u64 {
+        100
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuicParameters {
-    pub max_number_of_streams_per_client: u64,
+    pub max_number_of_streams_per_client: u32,
+    pub recieve_window_size: u32,
+    pub connection_timeout: u32,
 }
 
 impl Default for QuicParameters {
     fn default() -> Self {
         Self {
-            max_number_of_streams_per_client: 4096,
+            max_number_of_streams_per_client: 1024,
+            recieve_window_size: 1_000_000, // 1 Mb
+            connection_timeout: 10,         // 10s
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CompressionParameters {
-    compression_type: CompressionType,
+    pub compression_type: CompressionType,
 }
