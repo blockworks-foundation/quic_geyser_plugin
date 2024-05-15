@@ -146,6 +146,7 @@ impl ConnectionManager {
                                 match send_message(send_stream, message.clone()).await {
                                     Ok(_) => {
                                         log::debug!("Message sucessfully sent");
+                                        break;
                                     }
                                     Err(e) => {
                                         log::error!(

@@ -43,7 +43,7 @@ pub enum ChannelMessage {
 
 #[derive(Debug)]
 pub struct QuicServer {
-    runtime: Runtime,
+    _runtime: Runtime,
     data_channel_sender: UnboundedSender<ChannelMessage>,
 }
 
@@ -126,12 +126,13 @@ impl QuicServer {
                         }
                     }
                 }
+                log::error!("quic server dispatch task stopped");
             });
         }
 
         Ok(QuicServer {
             data_channel_sender,
-            runtime,
+            _runtime: runtime,
         })
     }
 
