@@ -22,6 +22,7 @@ agave-geyser-plugin-interface = "=1.17.31"
 solana-net-utils = "=1.17.31"
 solana-streamer = "=1.17.31"
 solana-transaction-status = "=1.17.31"
+solana-logger = "=1.17.31"
 
 itertools = "0.10.5"
 serde = "1.0.201"

@@ -52,11 +52,15 @@ impl ConnectionManager {
                         let connection_result = connecting.await;
                         match connection_result {
                             Ok(connection) => {
+                                println!(
+                                    "Connection started ---------------------------------------"
+                                );
                                 // connection established
                                 // add the connection in the connections list
                                 let mut lk = connections.write().await;
                                 id += 1;
                                 let current_id = id;
+                                log::info!("New connection id: {}", current_id);
                                 lk.push_back(ConnectionData::new(
                                     current_id,
                                     connection.clone(),
@@ -73,6 +77,9 @@ impl ConnectionManager {
                                         if let Ok(recv_stream) =
                                             connection_to_listen.accept_uni().await
                                         {
+                                            log::info!(
+                                                "new unistream connection to update filters"
+                                            );
                                             match tokio::time::timeout(
                                                 Duration::from_secs(10),
                                                 recv_message(recv_stream),
@@ -109,9 +116,16 @@ impl ConnectionManager {
                                 tokio::spawn(async move {
                                     // if connection is closed remove it
                                     let closed_error = connection.closed().await;
-                                    log::info!("connection closed with error {}", closed_error);
+                                    log::info!(
+                                        "connection closed with id {} error {}",
+                                        closed_error,
+                                        current_id
+                                    );
                                     let mut lk = connections.write().await;
                                     lk.retain(|x| x.id != current_id);
+                                    println!(
+                                        "Connection closed ---------------------------------------"
+                                    );
                                 });
                             }
                             Err(e) => log::error!("Error connecting {}", e),
@@ -130,13 +144,18 @@ impl ConnectionManager {
         for connection_data in lk.iter() {
             if connection_data.filters.iter().any(|x| x.allows(&message)) {
                 let connection = connection_data.connection.clone();
-                let message = message.clone();
-                let permit = connection_data
+                let permit_result = connection_data
                     .streams_under_use
                     .clone()
-                    .acquire_owned()
-                    .await
-                    .expect("Should be able to reserve permit");
+                    .try_acquire_owned();
+
+                let Ok(permit) = permit_result else {
+                    log::error!("Stream {} seems to be lagging", connection_data.id);
+                    continue;
+                };
+
+                let message = message.clone();
+
                 tokio::spawn(async move {
                     let _permit = permit;
                     for _ in 0..retry_count {
@@ -161,12 +180,10 @@ impl ConnectionManager {
                                     "error dispatching message while creating stream : {}",
                                     e
                                 );
+                                break;
                             }
                         }
                     }
-                    log::error!(
-                        "Unable to send the message successfully after {retry_count} retries"
-                    );
                 });
             }
         }

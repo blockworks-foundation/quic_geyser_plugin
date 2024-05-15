@@ -25,6 +25,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
     }
 
     fn on_load(&mut self, config_file: &str) -> PluginResult<()> {
+        solana_logger::setup_with_default("info");
         log::info!("loading quic_geyser plugin");
         let config = Config::load_from_file(config_file)?;
         log::info!("Quic plugin config correctly loaded");

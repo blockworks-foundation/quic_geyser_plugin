@@ -72,7 +72,7 @@ impl QuicServer {
             .build()
             .map_err(|error| {
                 let s = error.to_string();
-                log::info!("Runtime Error : {}", s);
+                log::error!("Runtime Error : {}", s);
                 GeyserPluginError::Custom(Box::new(error))
             })?;
 
@@ -98,7 +98,6 @@ impl QuicServer {
                 );
                 log::info!("Connection manager sucessfully started");
                 while let Some(channel_message) = data_channel_tx.recv().await {
-                    log::info!("recieved message");
                     match channel_message {
                         ChannelMessage::Account(account, slot, is_startup) => {
                             // avoid sending messages at startup
