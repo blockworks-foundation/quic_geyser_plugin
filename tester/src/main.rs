@@ -1,4 +1,5 @@
 use std::{
+    net::{Ipv4Addr, SocketAddrV4},
     sync::{atomic::AtomicU64, Arc},
     time::Duration,
 };
@@ -8,6 +9,8 @@ use cli::Args;
 use futures::StreamExt;
 use quic_geyser_client::{client::Client, DEFAULT_MAX_STREAM};
 use quic_geyser_common::filters::{AccountFilter, Filter};
+use quic_geyser_plugin::config::{CompressionParameters, Config, ConfigQuicPlugin, QuicParameters};
+use serde_json::json;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Keypair};
 use tokio::pin;
@@ -15,26 +18,43 @@ use tokio::pin;
 pub mod cli;
 
 // to  create a config json
-    // let config = Config {
-    //     libpath: "temp".to_string(),
-    //     quic_plugin: ConfigQuicPlugin {
-    //         address: std::net::SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 10800)),
-    //         quic_parameters: QuicParameters {
-    //             max_number_of_streams_per_client: 1024,
-    //             recieve_window_size: 1_000_000,
-    //             connection_timeout: 600,
-    //         },
-    //         compression_parameters: CompressionParameters {
-    //             compression_type: quic_geyser_common::compression::CompressionType::Lz4Fast(8),
-    //         },
-    //         number_of_retries: 100,
-    //     },
-    // };
-    // let config_json = json!(config);
-    //println!("{}", config_json);
+// let config = Config {
+//     libpath: "temp".to_string(),
+//     quic_plugin: ConfigQuicPlugin {
+//         address: std::net::SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 10800)),
+//         quic_parameters: QuicParameters {
+//             max_number_of_streams_per_client: 1024,
+//             recieve_window_size: 1_000_000,
+//             connection_timeout: 600,
+//         },
+//         compression_parameters: CompressionParameters {
+//             compression_type: quic_geyser_common::compression::CompressionType::Lz4Fast(8),
+//         },
+//         number_of_retries: 100,
+//     },
+// };
+// let config_json = json!(config);
+//println!("{}", config_json);
 
 #[tokio::main]
 async fn main() {
+    let config = Config {
+        libpath: "temp".to_string(),
+        quic_plugin: ConfigQuicPlugin {
+            address: std::net::SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 10800)),
+            quic_parameters: QuicParameters {
+                max_number_of_streams_per_client: 1024,
+                recieve_window_size: 1_000_000,
+                connection_timeout: 600,
+            },
+            compression_parameters: CompressionParameters {
+                compression_type: quic_geyser_common::compression::CompressionType::Lz4Fast(8),
+            },
+            number_of_retries: 100,
+        },
+    };
+    let config_json = json!(config);
+    println!("{}", config_json);
 
     let args = Args::parse();
     let client = Client::new(args.url, &Keypair::new(), DEFAULT_MAX_STREAM)

@@ -1,6 +1,9 @@
 use std::{
     net::{IpAddr, Ipv4Addr, UdpSocket},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 
 use agave_geyser_plugin_interface::geyser_plugin_interface::{GeyserPluginError, Result};
@@ -19,7 +22,10 @@ use solana_sdk::{
     account::Account, clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey,
     signature::Keypair,
 };
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::{
+    runtime::{Builder, Runtime},
+    sync::mpsc::UnboundedSender,
+};
 
 use crate::{config::Config, plugin_error::QuicGeyserError};
 
@@ -37,6 +43,7 @@ pub enum ChannelMessage {
 
 #[derive(Debug)]
 pub struct QuicServer {
+    runtime: Runtime,
     _quic_connection_manager: ConnectionManager,
     data_channel_sender: UnboundedSender<ChannelMessage>,
 }
@@ -61,7 +68,15 @@ impl QuicServer {
             Some(server_config),
             socket,
             Arc::new(TokioRuntime),
-        )?;
+        );
+        let endpoint = match endpoint {
+            Ok(e) => e,
+            Err(e) => {
+                let s = e.to_string();
+                log::info!("{}", s);
+                panic!("todo")
+            }
+        };
         let retry_count = config.quic_plugin.number_of_retries;
 
         let (quic_connection_manager, _jh) = ConnectionManager::new(
@@ -110,6 +125,7 @@ impl QuicServer {
         Ok(QuicServer {
             _quic_connection_manager: quic_connection_manager,
             data_channel_sender,
+            runtime,
         })
     }
 

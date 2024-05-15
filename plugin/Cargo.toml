@@ -25,3 +25,12 @@ log = { workspace = "true" }
 thiserror = {workspace = "true"}
 
 quic-geyser-common = { path = "../common" }
+
+[build-dependencies]
+anyhow = { workspace = true }
+cargo-lock = { workspace = true }
+git-version = { workspace = true }
+vergen = { workspace = true, features = ["build", "rustc"] }
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
