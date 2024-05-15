@@ -14,7 +14,7 @@ name = "config-check"
 
 [dependencies]
 tokio = { workspace = "true" }
-clap = { workspace = "true", features = ["derive", "env"]  }
+clap = { workspace = "true", features = ["derive"]  }
 serde = { workspace = "true" }
 solana-sdk = { workspace = "true" }
 agave-geyser-plugin-interface = { workspace = "true" }

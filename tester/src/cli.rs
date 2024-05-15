@@ -1,11 +1,11 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
-#[command(author, version, about, long_about = None)]
+#[clap(name = "quic_plugin_tester")]
 pub struct Args {
-    #[arg(short, long)]
+    #[clap(short, long)]
     pub url: String,
 
-    #[arg(short, long)]
+    #[clap(short, long)]
     pub rpc_url: String,
 }
