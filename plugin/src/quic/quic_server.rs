@@ -44,7 +44,6 @@ pub enum ChannelMessage {
 #[derive(Debug)]
 pub struct QuicServer {
     runtime: Runtime,
-    _quic_connection_manager: ConnectionManager,
     data_channel_sender: UnboundedSender<ChannelMessage>,
 }
 
@@ -63,35 +62,43 @@ impl QuicServer {
         let socket = UdpSocket::bind(config.quic_plugin.address)?;
         let compression_type = config.quic_plugin.compression_parameters.compression_type;
 
-        let endpoint = Endpoint::new(
-            EndpointConfig::default(),
-            Some(server_config),
-            socket,
-            Arc::new(TokioRuntime),
-        );
-        let endpoint = match endpoint {
-            Ok(e) => e,
-            Err(e) => {
-                let s = e.to_string();
-                log::info!("{}", s);
-                panic!("todo")
-            }
-        };
-        let retry_count = config.quic_plugin.number_of_retries;
+        let runtime = Builder::new_multi_thread()
+            .thread_name_fn(|| {
+                static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
+                let id = ATOMIC_ID.fetch_add(1, Ordering::Relaxed);
+                format!("solGeyserGrpc{id:02}")
+            })
+            .enable_all()
+            .build()
+            .map_err(|error| {
+                let s = error.to_string();
+                log::info!("Runtime Error : {}", s);
+                GeyserPluginError::Custom(Box::new(error))
+            })?;
 
-        let (quic_connection_manager, _jh) = ConnectionManager::new(
-            endpoint,
-            config
-                .quic_plugin
-                .quic_parameters
-                .max_number_of_streams_per_client as usize,
-        );
         let (data_channel_sender, mut data_channel_tx) = tokio::sync::mpsc::unbounded_channel();
 
         {
-            let quic_connection_manager = quic_connection_manager.clone();
-            tokio::spawn(async move {
+            runtime.spawn(async move {
+                let endpoint = Endpoint::new(
+                    EndpointConfig::default(),
+                    Some(server_config),
+                    socket,
+                    Arc::new(TokioRuntime),
+                )
+                .unwrap();
+                let retry_count = config.quic_plugin.number_of_retries;
+
+                let (quic_connection_manager, _jh) = ConnectionManager::new(
+                    endpoint,
+                    config
+                        .quic_plugin
+                        .quic_parameters
+                        .max_number_of_streams_per_client as usize,
+                );
+                log::info!("Connection manager sucessfully started");
                 while let Some(channel_message) = data_channel_tx.recv().await {
+                    log::info!("recieved message");
                     match channel_message {
                         ChannelMessage::Account(account, slot, is_startup) => {
                             // avoid sending messages at startup
@@ -123,7 +130,6 @@ impl QuicServer {
         }
 
         Ok(QuicServer {
-            _quic_connection_manager: quic_connection_manager,
             data_channel_sender,
             runtime,
         })

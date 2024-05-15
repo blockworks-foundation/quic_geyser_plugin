@@ -28,6 +28,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
         log::info!("loading quic_geyser plugin");
         let config = Config::load_from_file(config_file)?;
         log::info!("Quic plugin config correctly loaded");
+
         let quic_server = QuicServer::new(Keypair::new(), config).map_err(|_| {
             GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
         })?;

@@ -1,5 +1,4 @@
 use std::{
-    net::{Ipv4Addr, SocketAddrV4},
     sync::{atomic::AtomicU64, Arc},
     time::Duration,
 };
@@ -9,8 +8,6 @@ use cli::Args;
 use futures::StreamExt;
 use quic_geyser_client::{client::Client, DEFAULT_MAX_STREAM};
 use quic_geyser_common::filters::{AccountFilter, Filter};
-use quic_geyser_plugin::config::{CompressionParameters, Config, ConfigQuicPlugin, QuicParameters};
-use serde_json::json;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Keypair};
 use tokio::pin;
@@ -18,6 +15,9 @@ use tokio::pin;
 pub mod cli;
 
 // to  create a config json
+// use std::net::{Ipv4Addr, SocketAddrV4};
+// use quic_geyser_plugin::config::{CompressionParameters, Config, ConfigQuicPlugin, QuicParameters};
+// use serde_json::json;
 // let config = Config {
 //     libpath: "temp".to_string(),
 //     quic_plugin: ConfigQuicPlugin {
@@ -38,28 +38,12 @@ pub mod cli;
 
 #[tokio::main]
 async fn main() {
-    let config = Config {
-        libpath: "temp".to_string(),
-        quic_plugin: ConfigQuicPlugin {
-            address: std::net::SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 10800)),
-            quic_parameters: QuicParameters {
-                max_number_of_streams_per_client: 1024,
-                recieve_window_size: 1_000_000,
-                connection_timeout: 600,
-            },
-            compression_parameters: CompressionParameters {
-                compression_type: quic_geyser_common::compression::CompressionType::Lz4Fast(8),
-            },
-            number_of_retries: 100,
-        },
-    };
-    let config_json = json!(config);
-    println!("{}", config_json);
-
     let args = Args::parse();
+    println!("Connecting");
     let client = Client::new(args.url, &Keypair::new(), DEFAULT_MAX_STREAM)
         .await
         .unwrap();
+    println!("Connected");
 
     let bytes_transfered = Arc::new(AtomicU64::new(0));
     let slot_notifications = Arc::new(AtomicU64::new(0));
@@ -101,26 +85,27 @@ async fn main() {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 let bytes_transfered =
                     bytes_transfered.swap(0, std::sync::atomic::Ordering::Relaxed);
-                log::info!("------------------------------------------");
-                log::info!(" Bytes Transfered : {}", bytes_transfered);
-                log::info!(
+                println!("------------------------------------------");
+                println!(" Bytes Transfered : {}", bytes_transfered);
+                println!(
                     " Accounts Notified : {}",
                     account_notification.swap(0, std::sync::atomic::Ordering::Relaxed)
                 );
-                log::info!(
+                println!(
                     " Slots Notified : {}",
                     slot_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
                 );
-                log::info!(
+                println!(
                     " Blockmeta notified : {}",
                     blockmeta_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
                 );
 
-                log::info!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {} ", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed));
+                println!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {} ", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed));
             }
         });
     }
 
+    println!("Subscribing");
     client
         .subscribe(vec![
             Filter::Account(AccountFilter {
@@ -132,6 +117,7 @@ async fn main() {
         ])
         .await
         .unwrap();
+    println!("Subscribed");
 
     let stream = client.get_stream();
     pin!(stream);
