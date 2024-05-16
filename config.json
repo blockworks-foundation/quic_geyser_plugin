@@ -10,7 +10,7 @@
       "number_of_retries": 100,
       "quic_parameters": {
           "connection_timeout": 30,
-          "max_number_of_streams_per_client": 1024,
+          "max_number_of_streams_per_client": 16384,
           "recieve_window_size": 1000000
       }
   }
