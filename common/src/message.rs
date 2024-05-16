@@ -5,6 +5,7 @@ use crate::{
     types::{
         account::Account,
         block_meta::{BlockMeta, SlotMeta},
+        transaction::Transaction,
     },
 };
 
@@ -13,5 +14,6 @@ pub enum Message {
     AccountMsg(Account),
     SlotMsg(SlotMeta),
     BlockMetaMsg(BlockMeta),
+    TransactionMsg(Transaction),
     Filters(Vec<Filter>), // sent from client to server
 }

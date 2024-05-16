@@ -144,20 +144,26 @@ impl ConnectionManager {
         for connection_data in lk.iter() {
             if connection_data.filters.iter().any(|x| x.allows(&message)) {
                 let connection = connection_data.connection.clone();
-                let permit_result = connection_data
-                    .streams_under_use
-                    .clone()
-                    .try_acquire_owned();
-
-                let Ok(permit) = permit_result else {
-                    log::error!("Stream {} seems to be lagging", connection_data.id);
-                    continue;
-                };
 
                 let message = message.clone();
+                let stream_under_use = connection_data.streams_under_use.clone();
+                let id = connection_data.id;
 
                 tokio::spawn(async move {
-                    let _permit = permit;
+                    let permit_result = stream_under_use.clone().try_acquire_owned();
+
+                    let _permit = match permit_result {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            // all permits are taken wait log warning and wait for permit
+                            log::warn!("Stream {} seems to be lagging", id);
+                            stream_under_use
+                                .acquire_owned()
+                                .await
+                                .expect("Should aquire the permit")
+                        }
+                    };
+
                     for _ in 0..retry_count {
                         let send_stream = connection.open_uni().await;
                         match send_stream {

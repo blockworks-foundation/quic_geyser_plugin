@@ -15,6 +15,7 @@ use quic_geyser_common::{
         account::Account as GeyserAccount,
         block_meta::{BlockMeta, SlotMeta},
         slot_identifier::SlotIdentifier,
+        transaction::Transaction,
     },
 };
 use quinn::{Endpoint, EndpointConfig, TokioRuntime};
@@ -39,6 +40,7 @@ pub enum ChannelMessage {
     Account(AccountData, Slot, bool),
     Slot(u64, u64, CommitmentLevel),
     BlockMeta(BlockMeta),
+    Transaction(Transaction),
 }
 
 #[derive(Debug)]
@@ -121,6 +123,10 @@ impl QuicServer {
                         }
                         ChannelMessage::BlockMeta(block_meta) => {
                             let message = Message::BlockMetaMsg(block_meta);
+                            quic_connection_manager.dispach(message, retry_count).await;
+                        }
+                        ChannelMessage::Transaction(transaction) => {
+                            let message = Message::TransactionMsg(transaction);
                             quic_connection_manager.dispach(message, retry_count).await;
                         }
                     }

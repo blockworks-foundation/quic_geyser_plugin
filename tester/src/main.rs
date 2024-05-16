@@ -9,7 +9,11 @@ use futures::StreamExt;
 use quic_geyser_client::{client::Client, DEFAULT_MAX_STREAM};
 use quic_geyser_common::filters::{AccountFilter, Filter};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Keypair};
+use solana_sdk::{
+    commitment_config::CommitmentConfig,
+    pubkey::Pubkey,
+    signature::{Keypair, Signature},
+};
 use tokio::pin;
 
 pub mod cli;
@@ -49,6 +53,7 @@ async fn main() {
     let slot_notifications = Arc::new(AtomicU64::new(0));
     let account_notification = Arc::new(AtomicU64::new(0));
     let blockmeta_notifications = Arc::new(AtomicU64::new(0));
+    let transaction_notifications = Arc::new(AtomicU64::new(0));
 
     let cluster_slot = Arc::new(AtomicU64::new(0));
     let account_slot = Arc::new(AtomicU64::new(0));
@@ -75,6 +80,7 @@ async fn main() {
         let slot_notifications = slot_notifications.clone();
         let account_notification = account_notification.clone();
         let blockmeta_notifications = blockmeta_notifications.clone();
+        let transaction_notifications = transaction_notifications.clone();
 
         let cluster_slot = cluster_slot.clone();
         let account_slot = account_slot.clone();
@@ -99,6 +105,10 @@ async fn main() {
                     " Blockmeta notified : {}",
                     blockmeta_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
                 );
+                println!(
+                    " Transactions notified : {}",
+                    transaction_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
 
                 println!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {} ", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed));
             }
@@ -114,6 +124,7 @@ async fn main() {
             }),
             Filter::Slot,
             Filter::BlockMeta,
+            Filter::Transaction(Signature::default()),
         ])
         .await
         .unwrap();
@@ -143,6 +154,13 @@ async fn main() {
                 log::debug!("got blockmeta notification : {} ", block_meta.slot);
                 blockmeta_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 blockmeta_slot.store(block_meta.slot, std::sync::atomic::Ordering::Relaxed);
+            }
+            quic_geyser_common::message::Message::TransactionMsg(tx) => {
+                log::debug!(
+                    "got transaction notification: {}",
+                    tx.signatures[0].to_string()
+                );
+                transaction_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             quic_geyser_common::message::Message::Filters(_) => todo!(),
         }

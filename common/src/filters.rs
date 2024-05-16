@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
-use solana_sdk::pubkey::Pubkey;
+use solana_sdk::{pubkey::Pubkey, signature::Signature};
 
 use crate::message::Message;
 
@@ -10,6 +10,7 @@ pub enum Filter {
     Account(AccountFilter),
     Slot,
     BlockMeta,
+    Transaction(Signature),
 }
 
 impl Filter {
@@ -18,6 +19,20 @@ impl Filter {
             Filter::Account(account) => account.allows(message),
             Filter::Slot => matches!(message, Message::SlotMsg(_)),
             Filter::BlockMeta => matches!(message, Message::BlockMetaMsg(_)),
+            Filter::Transaction(signature) => {
+                match message {
+                    Message::TransactionMsg(transaction) => {
+                        if signature == &Signature::default() {
+                            // subscibe to all the signatures
+                            true
+                        } else {
+                            // just check the first signature
+                            transaction.signatures.iter().any(|x| x == signature)
+                        }
+                    }
+                    _ => false,
+                }
+            }
         }
     }
 }

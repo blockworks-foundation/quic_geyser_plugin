@@ -2,10 +2,14 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
     ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
 };
-use quic_geyser_common::types::block_meta::BlockMeta;
+use quic_geyser_common::types::{
+    block_meta::BlockMeta,
+    slot_identifier::SlotIdentifier,
+    transaction::{Transaction, TransactionMeta},
+};
 use solana_sdk::{
-    account::Account, clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey,
-    signature::Keypair,
+    account::Account, clock::Slot, commitment_config::CommitmentLevel, message::v0::Message,
+    pubkey::Pubkey, signature::Keypair,
 };
 
 use crate::{
@@ -102,10 +106,64 @@ impl GeyserPlugin for QuicGeyserPlugin {
 
     fn notify_transaction(
         &self,
-        _transaction: ReplicaTransactionInfoVersions,
-        _slot: Slot,
+        transaction: ReplicaTransactionInfoVersions,
+        slot: Slot,
     ) -> PluginResult<()> {
-        // Todo
+        let Some(quic_server) = &self.quic_server else {
+            return Ok(());
+        };
+        let ReplicaTransactionInfoVersions::V0_0_2(solana_transaction) = transaction else {
+            return Err(GeyserPluginError::TransactionUpdateError {
+                msg: "Unsupported transaction version".to_string(),
+            });
+        };
+
+        let message = solana_transaction.transaction.message();
+        let mut account_keys = vec![];
+
+        for index in 0.. {
+            let account = message.account_keys().get(index);
+            match account {
+                Some(account) => account_keys.push(*account),
+                None => break,
+            }
+        }
+
+        let v0_message = Message {
+            header: *message.header(),
+            account_keys,
+            recent_blockhash: *message.recent_blockhash(),
+            instructions: message.instructions().to_vec(),
+            address_table_lookups: message.message_address_table_lookups().to_vec(),
+        };
+
+        let status_meta = solana_transaction.transaction_status_meta;
+
+        let transaction = Transaction {
+            slot_identifier: SlotIdentifier { slot },
+            signatures: solana_transaction.transaction.signatures().to_vec(),
+            message: v0_message,
+            is_vote: solana_transaction.is_vote,
+            transasction_meta: TransactionMeta {
+                error: match &status_meta.status {
+                    Ok(_) => None,
+                    Err(e) => Some(e.clone()),
+                },
+                fee: status_meta.fee,
+                pre_balances: status_meta.pre_balances.clone(),
+                post_balances: status_meta.post_balances.clone(),
+                inner_instructions: status_meta.inner_instructions.clone(),
+                log_messages: status_meta.log_messages.clone(),
+                rewards: status_meta.rewards.clone(),
+                loaded_addresses: status_meta.loaded_addresses.clone(),
+                return_data: status_meta.return_data.clone(),
+                compute_units_consumed: status_meta.compute_units_consumed,
+            },
+            index: solana_transaction.index as u64,
+        };
+
+        let transaction_message = ChannelMessage::Transaction(transaction);
+        quic_server.send_message(transaction_message)?;
         Ok(())
     }
 
