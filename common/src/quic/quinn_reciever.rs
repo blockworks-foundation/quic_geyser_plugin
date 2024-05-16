@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::bail;
 use quinn::RecvStream;
 
@@ -7,26 +9,39 @@ pub fn convert_binary_to_message(bytes: Vec<u8>) -> anyhow::Result<Message> {
     Ok(bincode::deserialize::<Message>(&bytes)?)
 }
 
-pub async fn recv_message(mut recv_stream: RecvStream) -> anyhow::Result<Message> {
-    let chunk = recv_stream.read_chunk(8, true).await?;
-    if let Some(chunk) = chunk {
-        assert!(chunk.offset == 0);
-        let size_bytes = chunk.bytes.to_vec();
-        assert!(size_bytes.len() == 8);
+pub async fn recv_message(
+    mut recv_stream: RecvStream,
+    timeout_in_seconds: u64,
+) -> anyhow::Result<Message> {
+    let chunk = tokio::time::timeout(
+        Duration::from_secs(timeout_in_seconds),
+        recv_stream.read_chunk(8, true),
+    )
+    .await?;
+    match chunk {
+        Ok(Some(chunk)) => {
+            assert!(chunk.offset == 0);
+            let size_bytes = chunk.bytes.to_vec();
+            assert!(size_bytes.len() == 8);
 
-        let size_bytes: [u8; 8] = size_bytes.try_into().unwrap();
-        let size = u64::from_le_bytes(size_bytes) as usize;
-        let mut buffer: Vec<u8> = vec![0; size];
-        while let Some(data) = recv_stream.read_chunk(size, false).await? {
-            let bytes = data.bytes.to_vec();
-            let offset = data.offset - 8;
-            let begin_offset = offset as usize;
-            let end_offset = offset as usize + data.bytes.len();
-            buffer[begin_offset..end_offset].copy_from_slice(&bytes);
+            let size_bytes: [u8; 8] = size_bytes.try_into().unwrap();
+            let size = u64::from_le_bytes(size_bytes) as usize;
+            let mut buffer: Vec<u8> = vec![0; size];
+            while let Some(data) = recv_stream.read_chunk(size, false).await? {
+                let bytes = data.bytes.to_vec();
+                let offset = data.offset - 8;
+                let begin_offset = offset as usize;
+                let end_offset = offset as usize + data.bytes.len();
+                buffer[begin_offset..end_offset].copy_from_slice(&bytes);
+            }
+            convert_binary_to_message(buffer)
         }
-        convert_binary_to_message(buffer)
-    } else {
-        bail!("Stream was finished")
+        Ok(None) => {
+            bail!("Stream was finished with error")
+        }
+        Err(e) => {
+            bail!("stream timedout {}", e);
+        }
     }
 }
 
@@ -88,7 +103,7 @@ mod tests {
                     .unwrap();
                 let connection = connecting.await.unwrap();
                 let recv_stream = connection.accept_uni().await.unwrap();
-                let recved_message = recv_message(recv_stream).await.unwrap();
+                let recved_message = recv_message(recv_stream, 10).await.unwrap();
                 // assert if sent and recieved message match
                 assert_eq!(sent_message, recved_message);
             })
@@ -149,7 +164,7 @@ mod tests {
         let connection = connecting.await.unwrap();
         let recv_stream = connection.accept_uni().await.unwrap();
 
-        let recved_message = recv_message(recv_stream).await.unwrap();
+        let recved_message = recv_message(recv_stream, 10).await.unwrap();
         jh.await.unwrap();
         // assert if sent and recieved message match
         assert_eq!(message, recved_message);

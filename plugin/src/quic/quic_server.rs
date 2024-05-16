@@ -40,7 +40,7 @@ pub enum ChannelMessage {
     Account(AccountData, Slot, bool),
     Slot(u64, u64, CommitmentLevel),
     BlockMeta(BlockMeta),
-    Transaction(Transaction),
+    Transaction(Box<Transaction>),
 }
 
 #[derive(Debug)]
@@ -91,13 +91,7 @@ impl QuicServer {
                 .unwrap();
                 let retry_count = config.quic_plugin.number_of_retries;
 
-                let (quic_connection_manager, _jh) = ConnectionManager::new(
-                    endpoint,
-                    config
-                        .quic_plugin
-                        .quic_parameters
-                        .max_number_of_streams_per_client as usize,
-                );
+                let (quic_connection_manager, _jh) = ConnectionManager::new(endpoint);
                 log::info!("Connection manager sucessfully started");
                 while let Some(channel_message) = data_channel_tx.recv().await {
                     match channel_message {

@@ -2,11 +2,11 @@ use std::{net::SocketAddr, str::FromStr};
 
 use async_stream::stream;
 use futures::Stream;
-use quic_geyser_common::filters::Filter;
 use quic_geyser_common::message::Message;
 use quic_geyser_common::quic::configure_client::configure_client;
 use quic_geyser_common::quic::quinn_reciever::recv_message;
 use quic_geyser_common::quic::quinn_sender::send_message;
+use quic_geyser_common::{filters::Filter, types::connections_parameters::ConnectionParameters};
 use quinn::{Connection, ConnectionError};
 use solana_sdk::signature::Keypair;
 
@@ -19,12 +19,19 @@ impl Client {
     pub async fn new(
         server_address: String,
         identity: &Keypair,
-        max_concurrent_streams: u32,
+        connection_parameters: ConnectionParameters,
     ) -> anyhow::Result<Client> {
-        let endpoint = configure_client(identity, max_concurrent_streams).await?;
+        let endpoint =
+            configure_client(identity, connection_parameters.max_number_of_streams).await?;
         let socket_addr = SocketAddr::from_str(&server_address)?;
         let connecting = endpoint.connect(socket_addr, "quic_geyser_client")?;
         let connection = connecting.await?;
+        let send_stream = connection.open_uni().await?;
+        send_message(
+            send_stream,
+            Message::ConnectionParameters(connection_parameters),
+        )
+        .await?;
 
         Ok(Client {
             address: server_address,
@@ -48,7 +55,7 @@ impl Client {
                     Ok(recv_stream) => {
                         let sender = sender.clone();
                         tokio::spawn(async move {
-                            let message = recv_message(recv_stream).await;
+                            let message = recv_message(recv_stream, 10).await;
                             match message {
                                 Ok(message) => {
                                     let _ = sender.send(message);
@@ -92,7 +99,7 @@ mod tests {
         filters::{AccountFilter, Filter},
         message::Message,
         quic::{configure_server::configure_server, connection_manager::ConnectionManager},
-        types::account::Account,
+        types::{account::Account, connections_parameters::ConnectionParameters},
     };
     use quinn::{Endpoint, EndpointConfig, TokioRuntime};
     use solana_sdk::{pubkey::Pubkey, signature::Keypair};
@@ -137,7 +144,7 @@ mod tests {
                 )
                 .unwrap();
 
-                let (connection_manager, _jh) = ConnectionManager::new(endpoint, 2);
+                let (connection_manager, _jh) = ConnectionManager::new(endpoint);
                 notify_server_start.notify_one();
                 notify_subscription.notified().await;
                 for msg in msgs {
@@ -149,7 +156,17 @@ mod tests {
         notify_server_start.notified().await;
         // server started
 
-        let client = Client::new(url, &Keypair::new(), 2).await.unwrap();
+        let client = Client::new(
+            url,
+            &Keypair::new(),
+            ConnectionParameters {
+                max_number_of_streams: 3,
+                streams_for_slot_data: 1,
+                streams_for_transactions: 1,
+            },
+        )
+        .await
+        .unwrap();
         client
             .subscribe(vec![Filter::Account(AccountFilter {
                 owner: Some(Pubkey::default()),

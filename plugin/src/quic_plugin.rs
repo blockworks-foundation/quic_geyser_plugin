@@ -162,7 +162,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
             index: solana_transaction.index as u64,
         };
 
-        let transaction_message = ChannelMessage::Transaction(transaction);
+        let transaction_message = ChannelMessage::Transaction(Box::new(transaction));
         quic_server.send_message(transaction_message)?;
         Ok(())
     }

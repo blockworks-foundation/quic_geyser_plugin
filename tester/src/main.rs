@@ -6,8 +6,11 @@ use std::{
 use clap::Parser;
 use cli::Args;
 use futures::StreamExt;
-use quic_geyser_client::{client::Client, DEFAULT_MAX_STREAM};
-use quic_geyser_common::filters::{AccountFilter, Filter};
+use quic_geyser_client::client::Client;
+use quic_geyser_common::{
+    filters::{AccountFilter, Filter},
+    types::connections_parameters::ConnectionParameters,
+};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -44,7 +47,7 @@ pub mod cli;
 async fn main() {
     let args = Args::parse();
     println!("Connecting");
-    let client = Client::new(args.url, &Keypair::new(), DEFAULT_MAX_STREAM)
+    let client = Client::new(args.url, &Keypair::new(), ConnectionParameters::default())
         .await
         .unwrap();
     println!("Connected");
@@ -162,7 +165,12 @@ async fn main() {
                 );
                 transaction_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
-            quic_geyser_common::message::Message::Filters(_) => todo!(),
+            quic_geyser_common::message::Message::Filters(_) => {
+                // Not supported
+            }
+            quic_geyser_common::message::Message::ConnectionParameters(_) => {
+                // Not supported
+            }
         }
     }
 }
