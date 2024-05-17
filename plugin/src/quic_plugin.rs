@@ -1,22 +1,25 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
     ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
 };
-use quic_geyser_common::types::{
-    block_meta::BlockMeta,
-    slot_identifier::SlotIdentifier,
-    transaction::{Transaction, TransactionMeta},
+use quic_geyser_common::{
+    plugin_error::QuicGeyserError,
+    quic::quic_server::{AccountData, ChannelMessage, QuicServer},
+    types::{
+        block_meta::BlockMeta,
+        slot_identifier::SlotIdentifier,
+        transaction::{Transaction, TransactionMeta},
+    },
 };
 use solana_sdk::{
     account::Account, clock::Slot, commitment_config::CommitmentLevel, message::v0::Message,
     pubkey::Pubkey, signature::Keypair,
 };
+use tokio::runtime::Builder;
 
-use crate::{
-    config::Config,
-    plugin_error::QuicGeyserError,
-    quic::quic_server::{AccountData, ChannelMessage, QuicServer},
-};
+use crate::config::Config;
 
 #[derive(Debug, Default)]
 pub struct QuicGeyserPlugin {
@@ -33,10 +36,24 @@ impl GeyserPlugin for QuicGeyserPlugin {
         log::info!("loading quic_geyser plugin");
         let config = Config::load_from_file(config_file)?;
         log::info!("Quic plugin config correctly loaded");
+        let runtime = Builder::new_multi_thread()
+            .thread_name_fn(|| {
+                static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
+                let id = ATOMIC_ID.fetch_add(1, Ordering::Relaxed);
+                format!("solGeyserGrpc{id:02}")
+            })
+            .enable_all()
+            .build()
+            .map_err(|error| {
+                let s = error.to_string();
+                log::error!("Runtime Error : {}", s);
+                GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
+            })?;
 
-        let quic_server = QuicServer::new(Keypair::new(), config).map_err(|_| {
-            GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
-        })?;
+        let quic_server =
+            QuicServer::new(runtime, Keypair::new(), config.quic_plugin).map_err(|_| {
+                GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
+            })?;
         self.quic_server = Some(quic_server);
 
         Ok(())
@@ -68,15 +85,17 @@ impl GeyserPlugin for QuicGeyserPlugin {
             rent_epoch: account_info.rent_epoch,
         };
         let pubkey: Pubkey = Pubkey::try_from(account_info.pubkey).expect("valid pubkey");
-        quic_server.send_message(ChannelMessage::Account(
-            AccountData {
-                pubkey,
-                account,
-                write_version: account_info.write_version,
-            },
-            slot,
-            is_startup,
-        ))?;
+        quic_server
+            .send_message(ChannelMessage::Account(
+                AccountData {
+                    pubkey,
+                    account,
+                    write_version: account_info.write_version,
+                },
+                slot,
+                is_startup,
+            ))
+            .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
         Ok(())
     }
 
@@ -100,7 +119,9 @@ impl GeyserPlugin for QuicGeyserPlugin {
             SlotStatus::Confirmed => CommitmentLevel::Confirmed,
         };
         let slot_message = ChannelMessage::Slot(slot, parent.unwrap_or_default(), commitment_level);
-        quic_server.send_message(slot_message)?;
+        quic_server
+            .send_message(slot_message)
+            .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
         Ok(())
     }
 
@@ -163,7 +184,9 @@ impl GeyserPlugin for QuicGeyserPlugin {
         };
 
         let transaction_message = ChannelMessage::Transaction(Box::new(transaction));
-        quic_server.send_message(transaction_message)?;
+        quic_server
+            .send_message(transaction_message)
+            .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
         Ok(())
     }
 
@@ -194,7 +217,9 @@ impl GeyserPlugin for QuicGeyserPlugin {
             entries_count: blockinfo.entry_count,
         };
 
-        quic_server.send_message(ChannelMessage::BlockMeta(block_meta))?;
+        quic_server
+            .send_message(ChannelMessage::BlockMeta(block_meta))
+            .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
         Ok(())
     }
 

@@ -18,5 +18,6 @@ pem = { workspace = "true" }
 anyhow = { workspace = "true" }
 tokio = { workspace = "true" }
 log = { workspace = "true" }
+thiserror = {workspace = "true"}
 
 [dev-dependencies]

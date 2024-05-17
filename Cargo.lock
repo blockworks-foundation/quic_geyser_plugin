@@ -2483,6 +2483,7 @@ dependencies = [
  "solana-sdk",
  "solana-streamer",
  "solana-transaction-status",
+ "thiserror",
  "tokio",
 ]
 

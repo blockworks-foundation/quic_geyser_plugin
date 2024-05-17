@@ -1,15 +1,13 @@
 use std::{
     net::{IpAddr, Ipv4Addr, UdpSocket},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+    sync::Arc,
 };
 
-use agave_geyser_plugin_interface::geyser_plugin_interface::{GeyserPluginError, Result};
-use quic_geyser_common::{
+use crate::{
     compression::CompressionType,
+    config::ConfigQuicPlugin,
     message::Message,
+    plugin_error::QuicGeyserError,
     quic::{configure_server::configure_server, connection_manager::ConnectionManager},
     types::{
         account::Account as GeyserAccount,
@@ -23,12 +21,7 @@ use solana_sdk::{
     account::Account, clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey,
     signature::Keypair,
 };
-use tokio::{
-    runtime::{Builder, Runtime},
-    sync::mpsc::UnboundedSender,
-};
-
-use crate::{config::Config, plugin_error::QuicGeyserError};
+use tokio::{runtime::Runtime, sync::mpsc::UnboundedSender};
 
 pub struct AccountData {
     pub pubkey: Pubkey,
@@ -50,33 +43,20 @@ pub struct QuicServer {
 }
 
 impl QuicServer {
-    pub fn new(identity: Keypair, config: Config) -> anyhow::Result<Self> {
+    pub fn new(
+        runtime: Runtime,
+        identity: Keypair,
+        config: ConfigQuicPlugin,
+    ) -> anyhow::Result<Self> {
         let (server_config, _) = configure_server(
             &identity,
             IpAddr::V4(Ipv4Addr::LOCALHOST),
-            config
-                .quic_plugin
-                .quic_parameters
-                .max_number_of_streams_per_client,
-            config.quic_plugin.quic_parameters.recieve_window_size,
-            config.quic_plugin.quic_parameters.connection_timeout as u64,
+            config.quic_parameters.max_number_of_streams_per_client,
+            config.quic_parameters.recieve_window_size,
+            config.quic_parameters.connection_timeout as u64,
         )?;
-        let socket = UdpSocket::bind(config.quic_plugin.address)?;
-        let compression_type = config.quic_plugin.compression_parameters.compression_type;
-
-        let runtime = Builder::new_multi_thread()
-            .thread_name_fn(|| {
-                static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
-                let id = ATOMIC_ID.fetch_add(1, Ordering::Relaxed);
-                format!("solGeyserGrpc{id:02}")
-            })
-            .enable_all()
-            .build()
-            .map_err(|error| {
-                let s = error.to_string();
-                log::error!("Runtime Error : {}", s);
-                GeyserPluginError::Custom(Box::new(error))
-            })?;
+        let socket = UdpSocket::bind(config.address)?;
+        let compression_type = config.compression_parameters.compression_type;
 
         let (data_channel_sender, mut data_channel_tx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -89,7 +69,7 @@ impl QuicServer {
                     Arc::new(TokioRuntime),
                 )
                 .unwrap();
-                let retry_count = config.quic_plugin.number_of_retries;
+                let retry_count = config.number_of_retries;
 
                 let (quic_connection_manager, _jh) = ConnectionManager::new(endpoint);
                 log::info!("Connection manager sucessfully started");
@@ -135,10 +115,10 @@ impl QuicServer {
         })
     }
 
-    pub fn send_message(&self, message: ChannelMessage) -> Result<()> {
+    pub fn send_message(&self, message: ChannelMessage) -> Result<(), QuicGeyserError> {
         self.data_channel_sender
             .send(message)
-            .map_err(|_| GeyserPluginError::Custom(Box::new(QuicGeyserError::MessageChannelClosed)))
+            .map_err(|_| QuicGeyserError::MessageChannelClosed)
     }
 }
 
