@@ -27,7 +27,10 @@ pub async fn recv_message(
             let size_bytes: [u8; 8] = size_bytes.try_into().unwrap();
             let size = u64::from_le_bytes(size_bytes) as usize;
             let mut buffer: Vec<u8> = vec![0; size];
-            while let Some(data) = tokio::time::timeout(Duration::from_secs(1), recv_stream.read_chunk(size, false)).await?? {
+            while let Some(data) =
+                tokio::time::timeout(Duration::from_secs(1), recv_stream.read_chunk(size, false))
+                    .await??
+            {
                 let bytes = data.bytes.to_vec();
                 let offset = data.offset - 8;
                 let begin_offset = offset as usize;
@@ -52,9 +55,6 @@ mod tests {
         sync::Arc,
     };
 
-    use quinn::{Endpoint, EndpointConfig, TokioRuntime, VarInt};
-    use solana_sdk::signature::Keypair;
-
     use crate::{
         message::Message,
         quic::{
@@ -63,17 +63,11 @@ mod tests {
         },
         types::account::Account,
     };
+    use quinn::{Endpoint, EndpointConfig, TokioRuntime, VarInt};
 
     #[tokio::test]
     pub async fn test_send_and_recieve_of_small_account() {
-        let (config, _) = configure_server(
-            &Keypair::new(),
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            1,
-            100000,
-            1,
-        )
-        .unwrap();
+        let config = configure_server(1, 100000, 1).unwrap();
 
         let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
         let port = sock.local_addr().unwrap().port();
@@ -93,7 +87,7 @@ mod tests {
             let sent_message = message.clone();
 
             tokio::spawn(async move {
-                let endpoint = configure_client(&Keypair::new(), 1).await.unwrap();
+                let endpoint = configure_client(1).await.unwrap();
 
                 let connecting = endpoint
                     .connect(
@@ -119,14 +113,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn test_send_and_recieve_of_large_account() {
-        let (config, _) = configure_server(
-            &Keypair::new(),
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            1,
-            100000,
-            60,
-        )
-        .unwrap();
+        let config = configure_server(1, 100000, 60).unwrap();
 
         let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
         let port = sock.local_addr().unwrap().port();
@@ -146,7 +133,7 @@ mod tests {
             let sent_message = message.clone();
 
             tokio::spawn(async move {
-                let endpoint = configure_client(&Keypair::new(), 0).await.unwrap();
+                let endpoint = configure_client(0).await.unwrap();
 
                 let connecting = endpoint
                     .connect(

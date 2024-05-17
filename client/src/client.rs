@@ -8,7 +8,6 @@ use quic_geyser_common::quic::quinn_reciever::recv_message;
 use quic_geyser_common::quic::quinn_sender::send_message;
 use quic_geyser_common::{filters::Filter, types::connections_parameters::ConnectionParameters};
 use quinn::{Connection, ConnectionError};
-use solana_sdk::signature::Keypair;
 
 pub struct Client {
     pub address: String,
@@ -18,11 +17,9 @@ pub struct Client {
 impl Client {
     pub async fn new(
         server_address: String,
-        identity: &Keypair,
         connection_parameters: ConnectionParameters,
     ) -> anyhow::Result<Client> {
-        let endpoint =
-            configure_client(identity, connection_parameters.max_number_of_streams).await?;
+        let endpoint = configure_client(connection_parameters.max_number_of_streams).await?;
         let socket_addr = SocketAddr::from_str(&server_address)?;
         let connecting = endpoint.connect(socket_addr, "quic_geyser_client")?;
         let connection = connecting.await?;
@@ -45,7 +42,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn get_stream(&self) -> impl Stream<Item = Message> {
+    pub fn create_stream(&self) -> impl Stream<Item = Message> {
         let connection = self.connection.clone();
         let (sender, mut reciever) = tokio::sync::mpsc::unbounded_channel::<Message>();
         tokio::spawn(async move {
@@ -89,10 +86,7 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        net::{IpAddr, Ipv4Addr, UdpSocket},
-        sync::Arc,
-    };
+    use std::{net::UdpSocket, sync::Arc};
 
     use futures::StreamExt;
     use quic_geyser_common::{
@@ -102,21 +96,14 @@ mod tests {
         types::{account::Account, connections_parameters::ConnectionParameters},
     };
     use quinn::{Endpoint, EndpointConfig, TokioRuntime};
-    use solana_sdk::{pubkey::Pubkey, signature::Keypair};
+    use solana_sdk::pubkey::Pubkey;
     use tokio::{pin, sync::Notify};
 
     use crate::client::Client;
 
     #[tokio::test]
     pub async fn test_client() {
-        let (config, _) = configure_server(
-            &Keypair::new(),
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            1,
-            100000,
-            1,
-        )
-        .unwrap();
+        let config = configure_server(1, 100000, 1).unwrap();
 
         let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
         let port = sock.local_addr().unwrap().port();
@@ -158,7 +145,6 @@ mod tests {
 
         let client = Client::new(
             url,
-            &Keypair::new(),
             ConnectionParameters {
                 max_number_of_streams: 3,
                 streams_for_slot_data: 1,
@@ -177,7 +163,7 @@ mod tests {
 
         notify_subscription.notify_one();
 
-        let stream = client.get_stream();
+        let stream = client.create_stream();
         pin!(stream);
         for _ in 0..5 {
             let msg = stream.next().await.unwrap();

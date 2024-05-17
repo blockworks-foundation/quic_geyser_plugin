@@ -12,11 +12,7 @@ use quic_geyser_common::{
     types::connections_parameters::ConnectionParameters,
 };
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::{
-    commitment_config::CommitmentConfig,
-    pubkey::Pubkey,
-    signature::{Keypair, Signature},
-};
+use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature};
 use tokio::pin;
 
 pub mod cli;
@@ -47,7 +43,7 @@ pub mod cli;
 async fn main() {
     let args = Args::parse();
     println!("Connecting");
-    let client = Client::new(args.url, &Keypair::new(), ConnectionParameters::default())
+    let client = Client::new(args.url, ConnectionParameters::default())
         .await
         .unwrap();
     println!("Connected");
@@ -133,7 +129,7 @@ async fn main() {
         .unwrap();
     println!("Subscribed");
 
-    let stream = client.get_stream();
+    let stream = client.create_stream();
     pin!(stream);
 
     while let Some(message) = stream.next().await {

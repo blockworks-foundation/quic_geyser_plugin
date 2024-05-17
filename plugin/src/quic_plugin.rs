@@ -15,7 +15,7 @@ use quic_geyser_common::{
 };
 use solana_sdk::{
     account::Account, clock::Slot, commitment_config::CommitmentLevel, message::v0::Message,
-    pubkey::Pubkey, signature::Keypair,
+    pubkey::Pubkey,
 };
 use tokio::runtime::Builder;
 
@@ -50,10 +50,9 @@ impl GeyserPlugin for QuicGeyserPlugin {
                 GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
             })?;
 
-        let quic_server =
-            QuicServer::new(runtime, Keypair::new(), config.quic_plugin).map_err(|_| {
-                GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
-            })?;
+        let quic_server = QuicServer::new(runtime, config.quic_plugin).map_err(|_| {
+            GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
+        })?;
         self.quic_server = Some(quic_server);
 
         Ok(())

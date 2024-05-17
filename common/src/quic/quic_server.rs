@@ -1,7 +1,4 @@
-use std::{
-    net::{IpAddr, Ipv4Addr, UdpSocket},
-    sync::Arc,
-};
+use std::{net::UdpSocket, sync::Arc};
 
 use crate::{
     compression::CompressionType,
@@ -19,7 +16,6 @@ use crate::{
 use quinn::{Endpoint, EndpointConfig, TokioRuntime};
 use solana_sdk::{
     account::Account, clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey,
-    signature::Keypair,
 };
 use tokio::{runtime::Runtime, sync::mpsc::UnboundedSender};
 
@@ -43,14 +39,8 @@ pub struct QuicServer {
 }
 
 impl QuicServer {
-    pub fn new(
-        runtime: Runtime,
-        identity: Keypair,
-        config: ConfigQuicPlugin,
-    ) -> anyhow::Result<Self> {
-        let (server_config, _) = configure_server(
-            &identity,
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
+    pub fn new(runtime: Runtime, config: ConfigQuicPlugin) -> anyhow::Result<Self> {
+        let server_config = configure_server(
             config.quic_parameters.max_number_of_streams_per_client,
             config.quic_parameters.recieve_window_size,
             config.quic_parameters.connection_timeout as u64,
