@@ -3,6 +3,7 @@ use solana_sdk::commitment_config::CommitmentLevel;
 use solana_transaction_status::Reward;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub struct SlotMeta {
     pub slot: u64,
     pub parent: u64,
@@ -10,6 +11,7 @@ pub struct SlotMeta {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub struct BlockMeta {
     pub parent_slot: u64,
     pub slot: u64,

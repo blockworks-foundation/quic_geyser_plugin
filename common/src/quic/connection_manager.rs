@@ -187,7 +187,7 @@ impl ConnectionManager {
         });
     }
 
-    pub async fn dispach(&self, message: Message, retry_count: u64) {
+    pub async fn dispatch(&self, message: Message, retry_count: u64) {
         let lk = self.connections.read().await;
 
         for connection_data in lk.iter() {

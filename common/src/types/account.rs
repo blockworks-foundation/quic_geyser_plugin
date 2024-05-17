@@ -6,6 +6,7 @@ use crate::compression::CompressionType;
 use super::slot_identifier::SlotIdentifier;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(C)]
 pub struct Account {
     pub slot_identifier: SlotIdentifier,
     pub pubkey: Pubkey,

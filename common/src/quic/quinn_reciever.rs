@@ -27,7 +27,7 @@ pub async fn recv_message(
             let size_bytes: [u8; 8] = size_bytes.try_into().unwrap();
             let size = u64::from_le_bytes(size_bytes) as usize;
             let mut buffer: Vec<u8> = vec![0; size];
-            while let Some(data) = recv_stream.read_chunk(size, false).await? {
+            while let Some(data) = tokio::time::timeout(Duration::from_secs(1), recv_stream.read_chunk(size, false)).await?? {
                 let bytes = data.bytes.to_vec();
                 let offset = data.offset - 8;
                 let begin_offset = offset as usize;

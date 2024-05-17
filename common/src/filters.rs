@@ -6,6 +6,7 @@ use solana_sdk::{pubkey::Pubkey, signature::Signature};
 use crate::message::Message;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub enum Filter {
     Account(AccountFilter),
     Slot,
@@ -39,6 +40,7 @@ impl Filter {
 
 // setting owner to 11111111111111111111111111111111 will subscribe to all the accounts
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub struct AccountFilter {
     pub owner: Option<Pubkey>,
     pub accounts: Option<HashSet<Pubkey>>,

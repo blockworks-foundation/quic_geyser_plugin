@@ -10,6 +10,7 @@ use solana_transaction_status::{InnerInstructions, Rewards};
 use super::slot_identifier::SlotIdentifier;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub struct TransactionMeta {
     pub error: Option<TransactionError>,
     pub fee: u64,
@@ -24,6 +25,7 @@ pub struct TransactionMeta {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub struct Transaction {
     pub slot_identifier: SlotIdentifier,
     pub signatures: Vec<Signature>,

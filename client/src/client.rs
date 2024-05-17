@@ -148,7 +148,7 @@ mod tests {
                 notify_server_start.notify_one();
                 notify_subscription.notified().await;
                 for msg in msgs {
-                    connection_manager.dispach(msg, 10).await;
+                    connection_manager.dispatch(msg, 10).await;
                 }
             });
         }

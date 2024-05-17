@@ -11,6 +11,7 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub enum Message {
     AccountMsg(Account),
     SlotMsg(SlotMeta),

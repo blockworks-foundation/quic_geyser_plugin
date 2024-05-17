@@ -5,6 +5,7 @@ use crate::quic::configure_client::{
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub struct ConnectionParameters {
     pub max_number_of_streams: u32,
     pub streams_for_slot_data: u32,

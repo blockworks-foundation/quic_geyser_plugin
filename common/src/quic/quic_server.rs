@@ -93,15 +93,15 @@ impl QuicServer {
                                 parent,
                                 commitment_level,
                             });
-                            quic_connection_manager.dispach(message, retry_count).await;
+                            quic_connection_manager.dispatch(message, retry_count).await;
                         }
                         ChannelMessage::BlockMeta(block_meta) => {
                             let message = Message::BlockMetaMsg(block_meta);
-                            quic_connection_manager.dispach(message, retry_count).await;
+                            quic_connection_manager.dispatch(message, retry_count).await;
                         }
                         ChannelMessage::Transaction(transaction) => {
                             let message = Message::TransactionMsg(transaction);
-                            quic_connection_manager.dispach(message, retry_count).await;
+                            quic_connection_manager.dispatch(message, retry_count).await;
                         }
                     }
                 }
@@ -140,6 +140,6 @@ fn process_account_message(
         );
 
         let message = Message::AccountMsg(geyser_account);
-        quic_connection_manager.dispach(message, retry_count).await;
+        quic_connection_manager.dispatch(message, retry_count).await;
     });
 }
