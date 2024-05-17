@@ -107,7 +107,7 @@ mod tests {
         let connection = connecting.await.unwrap();
 
         let send_stream = connection.open_uni().await.unwrap();
-        send_message(send_stream, message).await.unwrap();
+        send_message(send_stream, &message).await.unwrap();
         jh.await.unwrap();
     }
 
@@ -143,7 +143,7 @@ mod tests {
                     .unwrap();
                 let connection = connecting.await.unwrap();
                 let send_stream = connection.open_uni().await.unwrap();
-                send_message(send_stream, sent_message).await.unwrap();
+                send_message(send_stream, &sent_message).await.unwrap();
             })
         };
 

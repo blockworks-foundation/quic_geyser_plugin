@@ -50,9 +50,16 @@ impl GeyserPlugin for QuicGeyserPlugin {
                 GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
             })?;
 
+<<<<<<< HEAD
         let quic_server = QuicServer::new(runtime, config.quic_plugin).map_err(|_| {
             GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
         })?;
+=======
+        let quic_server =
+            QuicServer::new(runtime, config.quic_plugin).map_err(|_| {
+                GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
+            })?;
+>>>>>>> 3611f81 (Making many changes at once (not working))
         self.quic_server = Some(quic_server);
 
         Ok(())

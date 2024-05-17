@@ -1,4 +1,4 @@
-use quinn::{Connection, Endpoint};
+use quinn::{Connection, Endpoint, VarInt};
 use std::sync::Arc;
 use std::{collections::VecDeque, time::Duration};
 use tokio::sync::Semaphore;
@@ -216,50 +216,49 @@ impl ConnectionManager {
                 let id = connection_data.id;
 
                 tokio::spawn(async move {
-                    let permit_result = semaphore.clone().try_acquire_owned();
+                    let permit_result = semaphore.try_acquire_owned();
 
-                    let _permit = match permit_result {
-                        Ok(permit) => permit,
-                        Err(_) => {
-                            // all permits are taken wait log warning and wait for permit
-                            log::warn!(
-                                "Stream {} seems to be lagging for {} message type",
-                                id,
-                                message_type
-                            );
-                            semaphore
-                                .acquire_owned()
-                                .await
-                                .expect("Should aquire the permit")
-                        }
-                    };
-
-                    for _ in 0..retry_count {
-                        let send_stream = connection.open_uni().await;
-                        match send_stream {
-                            Ok(send_stream) => {
-                                match send_message(send_stream, message.clone()).await {
-                                    Ok(_) => {
-                                        log::debug!("Message sucessfully sent");
-                                        break;
+                    match permit_result {
+                        Ok(permit) => {
+                            let _permit = permit;
+                            for _ in 0..retry_count {
+                                let send_stream = connection.open_uni().await;
+                                match send_stream {
+                                    Ok(send_stream) => {
+                                        match send_message(send_stream, &message).await {
+                                            Ok(_) => {
+                                                log::debug!("Message sucessfully sent");
+                                                break;
+                                            }
+                                            Err(e) => {
+                                                log::error!(
+                                                    "error dispatching message and sending data : {}",
+                                                    e
+                                                )
+                                            }
+                                        }
                                     }
                                     Err(e) => {
                                         log::error!(
-                                            "error dispatching message and sending data : {}",
+                                            "error dispatching message while creating stream : {}",
                                             e
-                                        )
+                                        );
+                                        break;
                                     }
                                 }
                             }
-                            Err(e) => {
-                                log::error!(
-                                    "error dispatching message while creating stream : {}",
-                                    e
-                                );
-                                break;
-                            }
+                        },
+                        Err(_) => {
+                            // all permits are taken wait log warning and wait for permit
+                            log::error!(
+                                "Stream {} seems to be lagging for {} message type, stopping the laggy client",
+                                id,
+                                message_type
+                            );
+                            connection.close(VarInt::from_u32(0), b"laggy client");
+
                         }
-                    }
+                    };
                 });
             }
         }
