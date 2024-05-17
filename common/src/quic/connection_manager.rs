@@ -237,20 +237,18 @@ impl ConnectionManager {
                     for _ in 0..retry_count {
                         let send_stream = connection.open_uni().await;
                         match send_stream {
-                            Ok(send_stream) => {
-                                match send_message(send_stream, message.clone()).await {
-                                    Ok(_) => {
-                                        log::debug!("Message sucessfully sent");
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        log::error!(
-                                            "error dispatching message and sending data : {}",
-                                            e
-                                        )
-                                    }
+                            Ok(send_stream) => match send_message(send_stream, &message).await {
+                                Ok(_) => {
+                                    log::debug!("Message sucessfully sent");
+                                    break;
                                 }
-                            }
+                                Err(e) => {
+                                    log::error!(
+                                        "error dispatching message and sending data : {}",
+                                        e
+                                    )
+                                }
+                            },
                             Err(e) => {
                                 log::error!(
                                     "error dispatching message while creating stream : {}",

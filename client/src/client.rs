@@ -26,7 +26,7 @@ impl Client {
         let send_stream = connection.open_uni().await?;
         send_message(
             send_stream,
-            Message::ConnectionParameters(connection_parameters),
+            &Message::ConnectionParameters(connection_parameters),
         )
         .await?;
 
@@ -38,7 +38,7 @@ impl Client {
 
     pub async fn subscribe(&self, filters: Vec<Filter>) -> anyhow::Result<()> {
         let send_stream = self.connection.open_uni().await?;
-        send_message(send_stream, Message::Filters(filters)).await?;
+        send_message(send_stream, &Message::Filters(filters)).await?;
         Ok(())
     }
 
