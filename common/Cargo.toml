@@ -11,7 +11,12 @@ serde = { workspace = true }
 bincode = { workspace = true }
 lz4 = { workspace = true }
 quinn = { workspace = true }
+<<<<<<< HEAD
 rustls = { workspace = true, default-features = false }
+=======
+quinn-proto = { workspace = true }
+rustls = { workspace = true, features = ["dangerous_configuration", "quic"] }
+>>>>>>> 3611f81 (Making many changes at once (not working))
 rcgen = { workspace = true }
 pkcs8 = { workspace = true }
 anyhow = { workspace = true }

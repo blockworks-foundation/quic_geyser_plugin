@@ -2294,6 +2294,10 @@ dependencies = [
  "lz4",
  "pkcs8",
  "quinn",
+<<<<<<< HEAD
+=======
+ "quinn-proto",
+>>>>>>> 3611f81 (Making many changes at once (not working))
  "rcgen",
  "rustls",
  "serde",
