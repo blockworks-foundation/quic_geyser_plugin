@@ -101,7 +101,7 @@ mod tests {
 
     use crate::client::Client;
 
-    #[tokio::test]
+    #[tokio::test( flavor = "multi_thread", worker_threads = 2)]
     pub async fn test_client() {
         let config = configure_server(1, 100000, 1).unwrap();
 
@@ -146,9 +146,9 @@ mod tests {
         let client = Client::new(
             url,
             ConnectionParameters {
-                max_number_of_streams: 3,
-                streams_for_slot_data: 1,
-                streams_for_transactions: 1,
+                max_number_of_streams: 30,
+                streams_for_slot_data: 10,
+                streams_for_transactions: 10,
             },
         )
         .await
