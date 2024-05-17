@@ -20,7 +20,10 @@ pub fn configure_server(
     connection_timeout: u64,
 ) -> Result<(ServerConfig, String), QuicServerError> {
     let (cert, priv_key) = new_self_signed_tls_certificate(identity_keypair, host)?;
-    let cert_chain_pem_parts = vec![Pem::new("CERTIFICATE", cert.0.clone())];
+    let cert_chain_pem_parts = vec![Pem {
+        tag: "CERTIFICATE".to_string(),
+        contents: cert.0.clone(),
+    }];
 
     let cert_chain_pem = pem::encode_many(&cert_chain_pem_parts);
 
