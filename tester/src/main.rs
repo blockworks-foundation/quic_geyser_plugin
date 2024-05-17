@@ -120,6 +120,7 @@ async fn main() {
             Filter::Account(AccountFilter {
                 owner: Some(Pubkey::default()),
                 accounts: None,
+                filter: None,
             }),
             Filter::Slot,
             Filter::BlockMeta,

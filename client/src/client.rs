@@ -157,6 +157,7 @@ mod tests {
             .subscribe(vec![Filter::Account(AccountFilter {
                 owner: Some(Pubkey::default()),
                 accounts: None,
+                filter: None,
             })])
             .await
             .unwrap();

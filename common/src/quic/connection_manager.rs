@@ -1,4 +1,4 @@
-use quinn::{Connection, Endpoint};
+use quinn::{Connection, Endpoint, VarInt};
 use std::sync::Arc;
 use std::{collections::VecDeque, time::Duration};
 use tokio::sync::Semaphore;
@@ -216,7 +216,7 @@ impl ConnectionManager {
                 let id = connection_data.id;
 
                 tokio::spawn(async move {
-                    let permit_result = semaphore.clone().try_acquire_owned();
+                    let permit_result = semaphore.try_acquire_owned();
 
                     let _permit = match permit_result {
                         Ok(permit) => permit,
@@ -227,10 +227,8 @@ impl ConnectionManager {
                                 id,
                                 message_type
                             );
-                            semaphore
-                                .acquire_owned()
-                                .await
-                                .expect("Should aquire the permit")
+                            connection.close(VarInt::from_u32(0), b"laggy client");
+                            return;
                         }
                     };
 

@@ -14,6 +14,7 @@ pub struct Account {
     pub write_version: u64,
     pub data: Vec<u8>,
     pub compression_type: CompressionType,
+    pub data_length: u64,
 }
 
 impl Account {
@@ -25,6 +26,7 @@ impl Account {
             write_version: 0,
             data: vec![178; data_size],
             compression_type: CompressionType::None,
+            data_length: data_size as u64,
         }
     }
 
@@ -36,6 +38,7 @@ impl Account {
         write_version: u64,
     ) -> Self {
         let binary = bincode::serialize(&solana_account).expect("account should be serializable");
+        let data_length = solana_account.data.len() as u64;
 
         let data = match compression_type {
             CompressionType::None => binary,
@@ -61,6 +64,18 @@ impl Account {
             write_version,
             data,
             compression_type,
+            data_length,
+        }
+    }
+
+    pub fn solana_account(&self) -> SolanaAccount {
+        match self.compression_type {
+            CompressionType::None => bincode::deserialize(&self.data).expect("Should deserialize"),
+            CompressionType::Lz4(_) | CompressionType::Lz4Fast(_) => {
+                let uncompressed =
+                    lz4::block::decompress(&self.data, None).expect("should uncompress");
+                bincode::deserialize(&uncompressed).expect("Should deserialize")
+            }
         }
     }
 }
