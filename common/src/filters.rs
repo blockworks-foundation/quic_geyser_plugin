@@ -88,7 +88,7 @@ impl AccountFilter {
                                 let solana_account = account.solana_account();
                                 let offset = memcmp.offset as usize;
                                 let MemcmpFilterData::Bytes(bytes) = &memcmp.data;
-                                
+
                                 if solana_account.data[offset..].len() < bytes.len() {
                                     return false;
                                 }

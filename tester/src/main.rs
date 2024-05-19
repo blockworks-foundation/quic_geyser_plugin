@@ -49,6 +49,7 @@ async fn main() {
     println!("Connected");
 
     let bytes_transfered = Arc::new(AtomicU64::new(0));
+    let total_accounts_size = Arc::new(AtomicU64::new(0));
     let slot_notifications = Arc::new(AtomicU64::new(0));
     let account_notification = Arc::new(AtomicU64::new(0));
     let blockmeta_notifications = Arc::new(AtomicU64::new(0));
@@ -80,6 +81,7 @@ async fn main() {
         let account_notification = account_notification.clone();
         let blockmeta_notifications = blockmeta_notifications.clone();
         let transaction_notifications = transaction_notifications.clone();
+        let total_accounts_size = total_accounts_size.clone();
 
         let cluster_slot = cluster_slot.clone();
         let account_slot = account_slot.clone();
@@ -92,6 +94,10 @@ async fn main() {
                     bytes_transfered.swap(0, std::sync::atomic::Ordering::Relaxed);
                 println!("------------------------------------------");
                 println!(" Bytes Transfered : {}", bytes_transfered);
+                println!(
+                    " Accounts transfered size (uncompressed) : {}",
+                    total_accounts_size.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
                 println!(
                     " Accounts Notified : {}",
                     account_notification.swap(0, std::sync::atomic::Ordering::Relaxed)
@@ -140,6 +146,9 @@ async fn main() {
             quic_geyser_common::message::Message::AccountMsg(account) => {
                 log::debug!("got account notification : {} ", account.pubkey);
                 account_notification.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                total_accounts_size
+                    .fetch_add(account.data_length, std::sync::atomic::Ordering::Relaxed);
+                let _account = account.solana_account();
                 account_slot.store(
                     account.slot_identifier.slot,
                     std::sync::atomic::Ordering::Relaxed,

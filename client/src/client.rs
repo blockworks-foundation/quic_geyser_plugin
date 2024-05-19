@@ -101,7 +101,7 @@ mod tests {
 
     use crate::client::Client;
 
-    #[tokio::test( flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     pub async fn test_client() {
         let config = configure_server(1, 100000, 1).unwrap();
 

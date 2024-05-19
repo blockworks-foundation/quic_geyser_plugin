@@ -9,43 +9,54 @@ pub fn convert_binary_to_message(bytes: Vec<u8>) -> anyhow::Result<Message> {
     Ok(bincode::deserialize::<Message>(&bytes)?)
 }
 
+pub async fn recv_size(
+    recv_stream: &mut RecvStream,
+    timeout_in_seconds: u64,
+) -> anyhow::Result<usize> {
+    let mut size_bytes: [u8; 8] = [0; 8];
+    let mut remaining: usize = 8;
+
+    while remaining > 0 {
+        let chunk = tokio::time::timeout(
+            Duration::from_secs(timeout_in_seconds),
+            recv_stream.read_chunk(remaining, true),
+        )
+        .await??;
+
+        match chunk {
+            Some(chunk) => {
+                let chunk_bytes = chunk.bytes.to_vec();
+                let offset = chunk.offset as usize;
+                size_bytes[offset..offset + chunk_bytes.len()].copy_from_slice(&chunk_bytes);
+                remaining -= chunk_bytes.len();
+            }
+            None => bail!("Stream was finished with error"),
+        }
+    }
+
+    Ok(u64::from_le_bytes(size_bytes) as usize)
+}
+
 pub async fn recv_message(
     mut recv_stream: RecvStream,
     timeout_in_seconds: u64,
 ) -> anyhow::Result<Message> {
-    let chunk = tokio::time::timeout(
-        Duration::from_secs(timeout_in_seconds),
-        recv_stream.read_chunk(8, true),
-    )
-    .await?;
-    match chunk {
-        Ok(Some(chunk)) => {
-            assert!(chunk.offset == 0);
-            let size_bytes = chunk.bytes.to_vec();
-            assert!(size_bytes.len() == 8);
+    let size = recv_size(&mut recv_stream, timeout_in_seconds).await?;
+    // 64 MBs accounts maximum
+    assert!(size < 64_000_000);
 
-            let size_bytes: [u8; 8] = size_bytes.try_into().unwrap();
-            let size = u64::from_le_bytes(size_bytes) as usize;
-            let mut buffer: Vec<u8> = vec![0; size];
-            while let Some(data) =
-                tokio::time::timeout(Duration::from_secs(1), recv_stream.read_chunk(size, false))
-                    .await??
-            {
-                let bytes = data.bytes.to_vec();
-                let offset = data.offset - 8;
-                let begin_offset = offset as usize;
-                let end_offset = offset as usize + data.bytes.len();
-                buffer[begin_offset..end_offset].copy_from_slice(&bytes);
-            }
-            convert_binary_to_message(buffer)
-        }
-        Ok(None) => {
-            bail!("Stream was finished with error")
-        }
-        Err(e) => {
-            bail!("stream timedout {}", e);
-        }
+    let mut buffer: Vec<u8> = vec![0; size];
+
+    while let Some(data) =
+        tokio::time::timeout(Duration::from_secs(1), recv_stream.read_chunk(size, false)).await??
+    {
+        let bytes = data.bytes.to_vec();
+        let offset = data.offset - 8;
+        let begin_offset = offset as usize;
+        let end_offset = offset as usize + data.bytes.len();
+        buffer[begin_offset..end_offset].copy_from_slice(&bytes);
     }
+    convert_binary_to_message(buffer)
 }
 
 #[cfg(test)]
