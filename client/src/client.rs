@@ -153,14 +153,7 @@ mod tests {
         )
         .await
         .unwrap();
-        client
-            .subscribe(vec![Filter::Account(AccountFilter {
-                owner: Some(Pubkey::default()),
-                accounts: None,
-                filter: None,
-            })])
-            .await
-            .unwrap();
+        client.subscribe(vec![Filter::AccountsAll]).await.unwrap();
 
         notify_subscription.notify_one();
 

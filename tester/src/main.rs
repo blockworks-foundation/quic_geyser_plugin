@@ -7,13 +7,10 @@ use clap::Parser;
 use cli::Args;
 use futures::StreamExt;
 use quic_geyser_client::client::Client;
-use quic_geyser_common::{
-    filters::{AccountFilter, Filter},
-    types::connections_parameters::ConnectionParameters,
-};
+use quic_geyser_common::{filters::Filter, types::connections_parameters::ConnectionParameters};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature};
-use tokio::pin;
+use solana_sdk::commitment_config::CommitmentConfig;
+use tokio::{pin, time::Instant};
 
 pub mod cli;
 
@@ -43,9 +40,16 @@ pub mod cli;
 async fn main() {
     let args = Args::parse();
     println!("Connecting");
-    let client = Client::new(args.url, ConnectionParameters::default())
-        .await
-        .unwrap();
+    let client = Client::new(
+        args.url,
+        ConnectionParameters {
+            max_number_of_streams: 100_000,
+            streams_for_slot_data: 128,
+            streams_for_transactions: 10_000,
+        },
+    )
+    .await
+    .unwrap();
     println!("Connected");
 
     let bytes_transfered = Arc::new(AtomicU64::new(0));
@@ -123,14 +127,10 @@ async fn main() {
     println!("Subscribing");
     client
         .subscribe(vec![
-            Filter::Account(AccountFilter {
-                owner: Some(Pubkey::default()),
-                accounts: None,
-                filter: None,
-            }),
+            Filter::AccountsAll,
+            Filter::TransactionsAll,
             Filter::Slot,
             Filter::BlockMeta,
-            Filter::Transaction(Signature::default()),
         ])
         .await
         .unwrap();
@@ -138,6 +138,7 @@ async fn main() {
 
     let stream = client.create_stream();
     pin!(stream);
+    let instant = Instant::now();
 
     while let Some(message) = stream.next().await {
         let message_size = bincode::serialize(&message).unwrap().len();
@@ -146,9 +147,24 @@ async fn main() {
             quic_geyser_common::message::Message::AccountMsg(account) => {
                 log::debug!("got account notification : {} ", account.pubkey);
                 account_notification.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let data_len = account.data_length as usize;
                 total_accounts_size
                     .fetch_add(account.data_length, std::sync::atomic::Ordering::Relaxed);
-                let _account = account.solana_account();
+                let solana_account = account.solana_account();
+                if solana_account.data.len() != data_len {
+                    println!("data length different");
+                    println!(
+                        "Account : {}, owner: {}=={}, datalen: {}=={}, lamports: {}",
+                        account.pubkey,
+                        account.owner,
+                        solana_account.owner,
+                        data_len,
+                        solana_account.data.len(),
+                        solana_account.lamports
+                    );
+                    panic!("Wrong account data");
+                }
+
                 account_slot.store(
                     account.slot_identifier.slot,
                     std::sync::atomic::Ordering::Relaxed,
@@ -179,4 +195,8 @@ async fn main() {
             }
         }
     }
+    println!(
+        "Conection closed and streaming stopped in {} seconds",
+        instant.elapsed().as_secs()
+    );
 }

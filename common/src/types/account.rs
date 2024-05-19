@@ -11,6 +11,9 @@ pub struct Account {
     pub slot_identifier: SlotIdentifier,
     pub pubkey: Pubkey,
     pub owner: Pubkey,
+    pub lamports: u64,
+    pub executable: bool,
+    pub rent_epoch: u64,
     pub write_version: u64,
     pub data: Vec<u8>,
     pub compression_type: CompressionType,
@@ -24,6 +27,9 @@ impl Account {
             pubkey: Pubkey::new_unique(),
             owner: Pubkey::new_unique(),
             write_version: 0,
+            lamports: 12345,
+            rent_epoch: u64::MAX,
+            executable: false,
             data: vec![178; data_size],
             compression_type: CompressionType::None,
             data_length: data_size as u64,
@@ -37,19 +43,18 @@ impl Account {
         slot_identifier: SlotIdentifier,
         write_version: u64,
     ) -> Self {
-        let binary = bincode::serialize(&solana_account).expect("account should be serializable");
         let data_length = solana_account.data.len() as u64;
 
         let data = match compression_type {
-            CompressionType::None => binary,
+            CompressionType::None => solana_account.data,
             CompressionType::Lz4Fast(speed) => lz4::block::compress(
-                &binary,
+                &solana_account.data,
                 Some(lz4::block::CompressionMode::FAST(speed as i32)),
                 true,
             )
             .expect("Compression should work"),
             CompressionType::Lz4(compression) => lz4::block::compress(
-                &binary,
+                &solana_account.data,
                 Some(lz4::block::CompressionMode::HIGHCOMPRESSION(
                     compression as i32,
                 )),
@@ -65,16 +70,31 @@ impl Account {
             data,
             compression_type,
             data_length,
+            lamports: solana_account.lamports,
+            executable: solana_account.executable,
+            rent_epoch: solana_account.rent_epoch,
         }
     }
 
     pub fn solana_account(&self) -> SolanaAccount {
         match self.compression_type {
-            CompressionType::None => bincode::deserialize(&self.data).expect("Should deserialize"),
+            CompressionType::None => SolanaAccount {
+                lamports: self.lamports,
+                data: self.data.clone(),
+                owner: self.owner,
+                executable: self.executable,
+                rent_epoch: self.rent_epoch,
+            },
             CompressionType::Lz4(_) | CompressionType::Lz4Fast(_) => {
-                let uncompressed =
+                let uncompressed_data =
                     lz4::block::decompress(&self.data, None).expect("should uncompress");
-                bincode::deserialize(&uncompressed).expect("Should deserialize")
+                SolanaAccount {
+                    lamports: self.lamports,
+                    data: uncompressed_data,
+                    owner: self.owner,
+                    executable: self.executable,
+                    rent_epoch: self.rent_epoch,
+                }
             }
         }
     }

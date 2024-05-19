@@ -36,8 +36,8 @@ client.subscribe(vec![
         .unwrap();
 ```
 
-You can also subscibe to all the account updates by setting owner : 'SystemProgram'.
-Similarly you can also subscibe to all transaction update by setting filter : `Filter::Transaction(Signature::default()),`.
+You can also subscibe to all the account updates by using filter `Filter::AccountsAll`
+Similarly you can also subscibe to all transaction update by setting filter : `Filter::TransactionsAll,`.
 
 
 ### Tester

@@ -9,31 +9,30 @@ use crate::message::Message;
 #[repr(C)]
 pub enum Filter {
     Account(AccountFilter),
+    AccountsAll,
     Slot,
     BlockMeta,
     Transaction(Signature),
+    TransactionsAll,
 }
 
 impl Filter {
     pub fn allows(&self, message: &Message) -> bool {
         match &self {
             Filter::Account(account) => account.allows(message),
+            Filter::AccountsAll => matches!(message, Message::AccountMsg(_)),
             Filter::Slot => matches!(message, Message::SlotMsg(_)),
             Filter::BlockMeta => matches!(message, Message::BlockMetaMsg(_)),
             Filter::Transaction(signature) => {
                 match message {
                     Message::TransactionMsg(transaction) => {
-                        if signature == &Signature::default() {
-                            // subscibe to all the signatures
-                            true
-                        } else {
-                            // just check the first signature
-                            transaction.signatures.iter().any(|x| x == signature)
-                        }
+                        // just check the first signature
+                        transaction.signatures[0] == *signature
                     }
                     _ => false,
                 }
             }
+            Filter::TransactionsAll => matches!(message, Message::TransactionMsg(_)),
         }
     }
 }
@@ -71,8 +70,7 @@ impl AccountFilter {
     pub fn allows(&self, message: &Message) -> bool {
         if let Message::AccountMsg(account) = message {
             if let Some(owner) = self.owner {
-                // check if filter subscribes to all the accounts
-                if owner == Pubkey::default() || owner == account.owner {
+                if owner == account.owner {
                     // to do move the filtering somewhere else because here we need to decode the account data
                     // but cannot be avoided for now, this will lag the client is abusing this filter
                     // lagged clients will be dropped
