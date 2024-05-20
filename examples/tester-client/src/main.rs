@@ -40,16 +40,9 @@ pub mod cli;
 async fn main() {
     let args = Args::parse();
     println!("Connecting");
-    let client = Client::new(
-        args.url,
-        ConnectionParameters {
-            max_number_of_streams: 100_000,
-            streams_for_slot_data: 128,
-            streams_for_transactions: 10_000,
-        },
-    )
-    .await
-    .unwrap();
+    let client = Client::new(args.url, ConnectionParameters::default())
+        .await
+        .unwrap();
     println!("Connected");
 
     let bytes_transfered = Arc::new(AtomicU64::new(0));
@@ -64,9 +57,9 @@ async fn main() {
     let slot_slot = Arc::new(AtomicU64::new(0));
     let blockmeta_slot = Arc::new(AtomicU64::new(0));
 
-    {
+    if let Some(rpc_url) = args.rpc_url {
         let cluster_slot = cluster_slot.clone();
-        let rpc = RpcClient::new(args.rpc_url);
+        let rpc = RpcClient::new(rpc_url);
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(100)).await;

@@ -130,11 +130,11 @@ mod tests {
                 )
                 .unwrap();
 
-                let (connection_manager, _jh) = ConnectionManager::new(endpoint);
+                let (connection_manager, _jh) = ConnectionManager::new(endpoint, 10);
                 notify_server_start.notify_one();
                 notify_subscription.notified().await;
                 for msg in msgs {
-                    connection_manager.dispatch(msg, 10, false).await;
+                    connection_manager.dispatch(msg, 10).await;
                 }
             });
         }

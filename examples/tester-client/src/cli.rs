@@ -7,5 +7,5 @@ pub struct Args {
     pub url: String,
 
     #[clap(short, long)]
-    pub rpc_url: String,
+    pub rpc_url: Option<String>,
 }

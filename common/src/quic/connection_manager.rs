@@ -1,4 +1,5 @@
 use quinn::{Connection, Endpoint, VarInt};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::{collections::VecDeque, time::Duration};
 use tokio::sync::Semaphore;
@@ -18,6 +19,8 @@ pub struct ConnectionData {
     stream_semaphore_for_accounts: Arc<Semaphore>,
     stream_semaphore_for_slot_data: Arc<Semaphore>,
     stream_semaphore_for_transactions: Arc<Semaphore>,
+    lagging_count: Arc<AtomicU64>,
+    max_lagging_stream: u64,
 }
 
 impl ConnectionData {
@@ -25,6 +28,7 @@ impl ConnectionData {
         id: u64,
         connection: Connection,
         connections_parameters: ConnectionParameters,
+        max_lagging_stream: u64,
     ) -> Self {
         let accounts_streams_count = connections_parameters
             .max_number_of_streams
@@ -44,6 +48,8 @@ impl ConnectionData {
             stream_semaphore_for_transactions: Arc::new(Semaphore::new(
                 connections_parameters.streams_for_transactions as usize,
             )),
+            lagging_count: Arc::new(AtomicU64::new(0)),
+            max_lagging_stream,
         }
     }
 }
@@ -57,7 +63,7 @@ pub struct ConnectionManager {
 }
 
 impl ConnectionManager {
-    pub fn new(endpoint: Endpoint) -> (Self, JoinHandle<()>) {
+    pub fn new(endpoint: Endpoint, max_lagging_stream: u64) -> (Self, JoinHandle<()>) {
         let connections: Arc<RwLock<VecDeque<ConnectionData>>> =
             Arc::new(RwLock::new(VecDeque::new()));
         // create a task to add incoming connections
@@ -93,6 +99,7 @@ impl ConnectionManager {
                                                     connection,
                                                     current_id,
                                                     connections_parameters,
+                                                    max_lagging_stream,
                                                 )
                                                 .await;
                                             }
@@ -125,6 +132,7 @@ impl ConnectionManager {
         connection: Connection,
         current_id: u64,
         connections_parameters: ConnectionParameters,
+        max_lagging_stream: u64,
     ) {
         // connection established
         // add the connection in the connections list
@@ -134,6 +142,7 @@ impl ConnectionManager {
             current_id,
             connection.clone(),
             connections_parameters,
+            max_lagging_stream,
         ));
         drop(lk);
 
@@ -187,7 +196,7 @@ impl ConnectionManager {
         });
     }
 
-    pub async fn dispatch(&self, message: Message, retry_count: u64, drop_lagger: bool) {
+    pub async fn dispatch(&self, message: Message, retry_count: u64) {
         let lk = self.connections.read().await;
 
         for connection_data in lk.iter() {
@@ -214,6 +223,8 @@ impl ConnectionManager {
                     ),
                 };
                 let id = connection_data.id;
+                let lagging_count = connection_data.lagging_count.clone();
+                let max_lagging_stream = connection_data.max_lagging_stream;
 
                 tokio::spawn(async move {
                     let permit_result = semaphore.clone().try_acquire_owned();
@@ -227,11 +238,15 @@ impl ConnectionManager {
                                 id,
                                 message_type
                             );
-                            if drop_lagger {
+                            let lc =
+                                lagging_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            if lc > max_lagging_stream {
                                 connection.close(VarInt::from_u32(0), b"laggy client");
                                 return;
                             }
-                            semaphore.acquire_owned().await.expect("Permit is aquired")
+                            let p = semaphore.acquire_owned().await.expect("Permit is aquired");
+                            lagging_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                            p
                         }
                     };
 

@@ -38,7 +38,7 @@ pub fn main() -> anyhow::Result<()> {
         },
         number_of_retries: 100,
     };
-    let quic_server = QuicServer::new(runtime, config, args.drop_laggers).unwrap();
+    let quic_server = QuicServer::new(runtime, config, args.max_lagging).unwrap();
 
     let mut instant = Instant::now();
 

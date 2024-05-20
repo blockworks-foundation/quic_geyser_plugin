@@ -42,7 +42,7 @@ impl QuicServer {
     pub fn new(
         runtime: Runtime,
         config: ConfigQuicPlugin,
-        drop_laggers: bool,
+        max_lagging: u64,
     ) -> anyhow::Result<Self> {
         let server_config = configure_server(
             config.quic_parameters.max_number_of_streams_per_client,
@@ -65,7 +65,7 @@ impl QuicServer {
                 .unwrap();
                 let retry_count = config.number_of_retries;
 
-                let (quic_connection_manager, _jh) = ConnectionManager::new(endpoint);
+                let (quic_connection_manager, _jh) = ConnectionManager::new(endpoint, max_lagging);
                 log::info!("Connection manager sucessfully started");
                 while let Some(channel_message) = data_channel_tx.recv().await {
                     match channel_message {
@@ -78,7 +78,6 @@ impl QuicServer {
                                     slot,
                                     compression_type,
                                     retry_count,
-                                    drop_laggers,
                                 );
                             }
                         }
@@ -88,21 +87,15 @@ impl QuicServer {
                                 parent,
                                 commitment_level,
                             });
-                            quic_connection_manager
-                                .dispatch(message, retry_count, drop_laggers)
-                                .await;
+                            quic_connection_manager.dispatch(message, retry_count).await;
                         }
                         ChannelMessage::BlockMeta(block_meta) => {
                             let message = Message::BlockMetaMsg(block_meta);
-                            quic_connection_manager
-                                .dispatch(message, retry_count, drop_laggers)
-                                .await;
+                            quic_connection_manager.dispatch(message, retry_count).await;
                         }
                         ChannelMessage::Transaction(transaction) => {
                             let message = Message::TransactionMsg(transaction);
-                            quic_connection_manager
-                                .dispatch(message, retry_count, drop_laggers)
-                                .await;
+                            quic_connection_manager.dispatch(message, retry_count).await;
                         }
                     }
                 }
@@ -129,7 +122,6 @@ fn process_account_message(
     slot: Slot,
     compression_type: CompressionType,
     retry_count: u64,
-    drop_laggers: bool,
 ) {
     tokio::spawn(async move {
         let slot_identifier = SlotIdentifier { slot };
@@ -142,8 +134,6 @@ fn process_account_message(
         );
 
         let message = Message::AccountMsg(geyser_account);
-        quic_connection_manager
-            .dispatch(message, retry_count, drop_laggers)
-            .await;
+        quic_connection_manager.dispatch(message, retry_count).await;
     });
 }

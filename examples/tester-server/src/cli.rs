@@ -12,6 +12,6 @@ pub struct Args {
     #[clap(short = 'l', long, default_value_t = 1_000_000)]
     pub account_data_size: u32,
 
-    #[clap(short, long, default_value_t = false)]
-    pub drop_laggers: bool,
+    #[clap(short, long, default_value_t = 1_000)]
+    pub max_lagging: u64,
 }

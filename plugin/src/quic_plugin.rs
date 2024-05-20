@@ -50,7 +50,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
                 GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
             })?;
 
-        let quic_server = QuicServer::new(runtime, config.quic_plugin, true).map_err(|_| {
+        let quic_server = QuicServer::new(runtime, config.quic_plugin, 20_000).map_err(|_| {
             GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
         })?;
         self.quic_server = Some(quic_server);
