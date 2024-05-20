@@ -47,6 +47,9 @@ pub fn main() -> anyhow::Result<()> {
     let mut slot = 1;
     let mut write_version = 1;
     let mut rand = thread_rng();
+    let data = (0..args.account_data_size as usize)
+    .map(|_| rand.gen::<u8>())
+    .collect_vec();
     loop {
         std::thread::sleep(Duration::from_secs(1) - Instant::now().duration_since(instant));
         instant = Instant::now();
@@ -57,9 +60,7 @@ pub fn main() -> anyhow::Result<()> {
                 pubkey: Pubkey::new_unique(),
                 account: Account {
                     lamports: rand.gen(),
-                    data: (0..args.account_data_size as usize)
-                        .map(|_| rand.gen::<u8>())
-                        .collect_vec(),
+                    data: data.clone(),
                     owner: Pubkey::new_unique(),
                     executable: false,
                     rent_epoch: u64::MAX,
