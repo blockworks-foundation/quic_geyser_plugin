@@ -116,8 +116,8 @@ mod tests {
         types::{account::Account, slot_identifier::SlotIdentifier},
     };
 
-    #[tokio::test]
-    async fn test_accounts_filter() {
+    #[test]
+    fn test_accounts_filter() {
         let owner = Pubkey::new_unique();
 
         let solana_account_1 = SolanaAccount {

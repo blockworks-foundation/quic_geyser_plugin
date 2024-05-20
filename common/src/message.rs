@@ -10,6 +10,9 @@ use crate::{
     },
 };
 
+// current maximum message size
+const MAX_MESSAGE_SIZE: u64 = 20_000_000;
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum Message {

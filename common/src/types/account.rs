@@ -45,22 +45,26 @@ impl Account {
     ) -> Self {
         let data_length = solana_account.data.len() as u64;
 
-        let data = match compression_type {
-            CompressionType::None => solana_account.data,
-            CompressionType::Lz4Fast(speed) => lz4::block::compress(
-                &solana_account.data,
-                Some(lz4::block::CompressionMode::FAST(speed as i32)),
-                true,
-            )
-            .expect("Compression should work"),
-            CompressionType::Lz4(compression) => lz4::block::compress(
-                &solana_account.data,
-                Some(lz4::block::CompressionMode::HIGHCOMPRESSION(
-                    compression as i32,
-                )),
-                true,
-            )
-            .expect("compression should work"),
+        let data = if solana_account.data.len() > 0 {
+            match compression_type {
+                CompressionType::None => solana_account.data,
+                CompressionType::Lz4Fast(speed) => lz4::block::compress(
+                    &solana_account.data,
+                    Some(lz4::block::CompressionMode::FAST(speed as i32)),
+                    true,
+                )
+                .expect("Compression should work"),
+                CompressionType::Lz4(compression) => lz4::block::compress(
+                    &solana_account.data,
+                    Some(lz4::block::CompressionMode::HIGHCOMPRESSION(
+                        compression as i32,
+                    )),
+                    true,
+                )
+                .expect("compression should work"),
+            }
+        } else {
+            vec![]
         };
         Account {
             slot_identifier,
@@ -86,8 +90,12 @@ impl Account {
                 rent_epoch: self.rent_epoch,
             },
             CompressionType::Lz4(_) | CompressionType::Lz4Fast(_) => {
-                let uncompressed_data =
-                    lz4::block::decompress(&self.data, None).expect("should uncompress");
+                let uncompressed_data = if self.data_length > 0 {
+                    lz4::block::decompress(&self.data, None).expect("should uncompress")
+                } else {
+                    vec![]
+                };
+
                 SolanaAccount {
                     lamports: self.lamports,
                     data: uncompressed_data,

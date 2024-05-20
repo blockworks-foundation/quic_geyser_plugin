@@ -4,14 +4,13 @@ use async_stream::stream;
 use futures::Stream;
 use quic_geyser_common::message::Message;
 use quic_geyser_common::quic::configure_client::configure_client;
-use quic_geyser_common::quic::quinn_reciever::recv_message;
-use quic_geyser_common::quic::quinn_sender::send_message;
+use quic_geyser_common::quic::quiche_reciever::recv_message;
+use quic_geyser_common::quic::quiche_sender::send_message;
 use quic_geyser_common::{filters::Filter, types::connections_parameters::ConnectionParameters};
-use quinn::{Connection, ConnectionError};
+//use quinn::{Connection, ConnectionError};
 
 pub struct Client {
     pub address: String,
-    connection: Connection,
 }
 
 impl Client {
@@ -19,63 +18,62 @@ impl Client {
         server_address: String,
         connection_parameters: ConnectionParameters,
     ) -> anyhow::Result<Client> {
-        let endpoint = configure_client(connection_parameters.max_number_of_streams).await?;
-        let socket_addr = SocketAddr::from_str(&server_address)?;
-        let connecting = endpoint.connect(socket_addr, "quic_geyser_client")?;
-        let connection = connecting.await?;
-        let send_stream = connection.open_uni().await?;
-        send_message(
-            send_stream,
-            &Message::ConnectionParameters(connection_parameters),
-        )
-        .await?;
+        // let endpoint = configure_client(connection_parameters.max_number_of_streams).await?;
+        // let socket_addr = SocketAddr::from_str(&server_address)?;
+        // let connecting = endpoint.connect(socket_addr, "quic_geyser_client")?;
+        // let connection = connecting.await?;
+        // let send_stream = connection.open_uni().await?;
+        // send_message(
+        //     send_stream,
+        //     &Message::ConnectionParameters(connection_parameters),
+        // )
+        // .await?;
 
         Ok(Client {
             address: server_address,
-            connection,
         })
     }
 
     pub async fn subscribe(&self, filters: Vec<Filter>) -> anyhow::Result<()> {
-        let send_stream = self.connection.open_uni().await?;
-        send_message(send_stream, &Message::Filters(filters)).await?;
+        // let send_stream = self.connection.open_uni().await?;
+        // send_message(send_stream, &Message::Filters(filters)).await?;
         Ok(())
     }
 
     pub fn create_stream(&self) -> impl Stream<Item = Message> {
-        let connection = self.connection.clone();
+        //let connection = self.connection.clone();
         let (sender, mut reciever) = tokio::sync::mpsc::unbounded_channel::<Message>();
-        tokio::spawn(async move {
-            loop {
-                let stream = connection.accept_uni().await;
-                match stream {
-                    Ok(recv_stream) => {
-                        let sender = sender.clone();
-                        tokio::spawn(async move {
-                            let message = recv_message(recv_stream, 10).await;
-                            match message {
-                                Ok(message) => {
-                                    let _ = sender.send(message);
-                                }
-                                Err(e) => {
-                                    log::error!("Error getting message {}", e);
-                                }
-                            }
-                        });
-                    }
-                    Err(e) => match &e {
-                        ConnectionError::ConnectionClosed(_)
-                        | ConnectionError::ApplicationClosed(_)
-                        | ConnectionError::LocallyClosed => {
-                            break;
-                        }
-                        _ => {
-                            log::error!("Got {} while listing to the connection", e);
-                        }
-                    },
-                }
-            }
-        });
+        // tokio::spawn(async move {
+        //     loop {
+        //         let stream = connection.accept_uni().await;
+        //         match stream {
+        //             Ok(recv_stream) => {
+        //                 let sender = sender.clone();
+        //                 tokio::spawn(async move {
+        //                     let message = recv_message(recv_stream, 10).await;
+        //                     match message {
+        //                         Ok(message) => {
+        //                             let _ = sender.send(message);
+        //                         }
+        //                         Err(e) => {
+        //                             log::error!("Error getting message {}", e);
+        //                         }
+        //                     }
+        //                 });
+        //             }
+        //             Err(e) => match &e {
+        //                 ConnectionError::ConnectionClosed(_)
+        //                 | ConnectionError::ApplicationClosed(_)
+        //                 | ConnectionError::LocallyClosed => {
+        //                     break;
+        //                 }
+        //                 _ => {
+        //                     log::error!("Got {} while listing to the connection", e);
+        //                 }
+        //             },
+        //         }
+        //     }
+        // });
         stream! {
             while let Some(message) = reciever.recv().await {
                     yield message;
@@ -84,92 +82,91 @@ impl Client {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::{net::UdpSocket, sync::Arc};
+// #[cfg(test)]
+// mod tests {
+//     use std::{net::UdpSocket, sync::Arc};
 
-    use futures::StreamExt;
-    use quic_geyser_common::{
-        filters::Filter,
-        message::Message,
-        quic::{configure_server::configure_server, connection_manager::ConnectionManager},
-        types::{account::Account, connections_parameters::ConnectionParameters},
-    };
-    use quinn::{Endpoint, EndpointConfig, TokioRuntime};
-    use tokio::{pin, sync::Notify};
+//     use futures::StreamExt;
+//     use quic_geyser_common::{
+//         filters::Filter,
+//         message::Message,
+//         quic::{configure_server::configure_server, connection_manager::ConnectionManager},
+//         types::{account::Account, connections_parameters::ConnectionParameters},
+//     };
+//     use tokio::{pin, sync::Notify};
 
-    use crate::client::Client;
+//     use crate::client::Client;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    pub async fn test_client() {
-        let config = configure_server(1, 100000, 1).unwrap();
+//     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+//     pub async fn test_client() {
+//         let config = configure_server(1, 100000, 1).unwrap();
 
-        let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
-        let port = sock.local_addr().unwrap().port();
-        let url = format!("127.0.0.1:{}", port);
-        let notify_server_start = Arc::new(Notify::new());
-        let notify_subscription = Arc::new(Notify::new());
+//         let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
+//         let port = sock.local_addr().unwrap().port();
+//         let url = format!("127.0.0.1:{}", port);
+//         let notify_server_start = Arc::new(Notify::new());
+//         let notify_subscription = Arc::new(Notify::new());
 
-        let msg_acc_1 = Message::AccountMsg(Account::get_account_for_test(0, 2));
-        let msg_acc_2 = Message::AccountMsg(Account::get_account_for_test(1, 20));
-        let msg_acc_3 = Message::AccountMsg(Account::get_account_for_test(2, 100));
-        let msg_acc_4 = Message::AccountMsg(Account::get_account_for_test(3, 1000));
-        let msg_acc_5 = Message::AccountMsg(Account::get_account_for_test(4, 10000));
-        let msgs = [msg_acc_1, msg_acc_2, msg_acc_3, msg_acc_4, msg_acc_5];
+//         let msg_acc_1 = Message::AccountMsg(Account::get_account_for_test(0, 2));
+//         let msg_acc_2 = Message::AccountMsg(Account::get_account_for_test(1, 20));
+//         let msg_acc_3 = Message::AccountMsg(Account::get_account_for_test(2, 100));
+//         let msg_acc_4 = Message::AccountMsg(Account::get_account_for_test(3, 1000));
+//         let msg_acc_5 = Message::AccountMsg(Account::get_account_for_test(4, 10000));
+//         let msgs = [msg_acc_1, msg_acc_2, msg_acc_3, msg_acc_4, msg_acc_5];
 
-        {
-            let msgs = msgs.clone();
-            let notify_server_start = notify_server_start.clone();
-            let notify_subscription = notify_subscription.clone();
-            tokio::spawn(async move {
-                let endpoint = Endpoint::new(
-                    EndpointConfig::default(),
-                    Some(config),
-                    sock,
-                    Arc::new(TokioRuntime),
-                )
-                .unwrap();
+//         {
+//             let msgs = msgs.clone();
+//             let notify_server_start = notify_server_start.clone();
+//             let notify_subscription = notify_subscription.clone();
+//             tokio::spawn(async move {
+//                 let endpoint = Endpoint::new(
+//                     EndpointConfig::default(),
+//                     Some(config),
+//                     sock,
+//                     Arc::new(TokioRuntime),
+//                 )
+//                 .unwrap();
 
-                let (connection_manager, _jh) = ConnectionManager::new(endpoint, 10);
-                notify_server_start.notify_one();
-                notify_subscription.notified().await;
-                for msg in msgs {
-                    connection_manager.dispatch(msg, 10).await;
-                }
-            });
-        }
+//                 let (connection_manager, _jh) = ConnectionManager::new(endpoint, 10);
+//                 notify_server_start.notify_one();
+//                 notify_subscription.notified().await;
+//                 for msg in msgs {
+//                     connection_manager.dispatch(msg, 10).await;
+//                 }
+//             });
+//         }
 
-        notify_server_start.notified().await;
-        // server started
+//         notify_server_start.notified().await;
+//         // server started
 
-        let client = Client::new(
-            url,
-            ConnectionParameters {
-                max_number_of_streams: 3,
-                streams_for_slot_data: 1,
-                streams_for_transactions: 1,
-            },
-        )
-        .await
-        .unwrap();
-        client.subscribe(vec![Filter::AccountsAll]).await.unwrap();
+//         let client = Client::new(
+//             url,
+//             ConnectionParameters {
+//                 max_number_of_streams: 3,
+//                 streams_for_slot_data: 1,
+//                 streams_for_transactions: 1,
+//             },
+//         )
+//         .await
+//         .unwrap();
+//         client.subscribe(vec![Filter::AccountsAll]).await.unwrap();
 
-        notify_subscription.notify_one();
+//         notify_subscription.notify_one();
 
-        let stream = client.create_stream();
-        pin!(stream);
-        for _ in 0..5 {
-            let msg = stream.next().await.unwrap();
-            match &msg {
-                Message::AccountMsg(account) => {
-                    let index = account.slot_identifier.slot as usize;
-                    let sent_message = &msgs[index];
-                    assert_eq!(*sent_message, msg);
-                }
-                _ => {
-                    panic!("should only get account messages")
-                }
-            }
-        }
-    }
-}
+//         let stream = client.create_stream();
+//         pin!(stream);
+//         for _ in 0..5 {
+//             let msg = stream.next().await.unwrap();
+//             match &msg {
+//                 Message::AccountMsg(account) => {
+//                     let index = account.slot_identifier.slot as usize;
+//                     let sent_message = &msgs[index];
+//                     assert_eq!(*sent_message, msg);
+//                 }
+//                 _ => {
+//                     panic!("should only get account messages")
+//                 }
+//             }
+//         }
+//     }
+// }

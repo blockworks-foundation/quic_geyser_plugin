@@ -1,42 +1,37 @@
-use std::{sync::Arc, time::Duration};
-
-use quinn::{IdleTimeout, ServerConfig};
-
-use super::skip_verification::ServerSkipClientVerification;
+use boring::ssl::SslMethod;
 
 pub const ALPN_GEYSER_PROTOCOL_ID: &[u8] = b"quic_geyser_plugin";
+pub const MAX_DATAGRAM_SIZE: usize = 1350;
 
 pub fn configure_server(
     max_concurrent_streams: u32,
     recieve_window_size: u32,
     connection_timeout: u64,
-) -> anyhow::Result<ServerConfig> {
-    let cert = rcgen::generate_simple_self_signed(vec!["quic_geyser_server".into()]).unwrap();
-    let key = rustls::PrivateKey(cert.serialize_private_key_der());
-    let cert = rustls::Certificate(cert.serialize_der().unwrap());
+) -> anyhow::Result<quiche::Config> {
+    let cert = rcgen::generate_simple_self_signed(vec!["quic_geyser".into()]).unwrap();
 
-    let mut server_tls_config = rustls::ServerConfig::builder()
-        .with_safe_defaults()
-        .with_client_cert_verifier(ServerSkipClientVerification::new())
-        .with_single_cert(vec![cert], key)?;
-    server_tls_config.alpn_protocols = vec![ALPN_GEYSER_PROTOCOL_ID.to_vec()];
+    let mut boring_ssl_context = boring::ssl::SslContextBuilder::new(SslMethod::tls())?;
+    let x509 = boring::x509::X509::from_der(&cert.serialize_der()?)?;
 
-    let mut server_config = ServerConfig::with_crypto(Arc::new(server_tls_config));
-    server_config.use_retry(true);
-    let config = Arc::get_mut(&mut server_config.transport).unwrap();
+    let private_key_der = cert.serialize_private_key_der();
+    let pkey = boring::pkey::PKey::private_key_from_der(&private_key_der)?;
+    boring_ssl_context.set_certificate(&x509)?;
+    boring_ssl_context.set_private_key(&pkey)?;
 
-    config.max_concurrent_uni_streams((max_concurrent_streams).into());
-    let recv_size = recieve_window_size.into();
-    config.stream_receive_window(recv_size);
-    config.receive_window(recv_size);
+    let mut config =
+        quiche::Config::with_boring_ssl_ctx_builder(quiche::PROTOCOL_VERSION, boring_ssl_context)
+            .unwrap();
 
-    let timeout = Duration::from_secs(connection_timeout);
-    let timeout = IdleTimeout::try_from(timeout).unwrap();
-    config.max_idle_timeout(Some(timeout));
-
-    // disable bidi & datagrams
-    config.max_concurrent_bidi_streams(0u32.into());
-    config.datagram_receive_buffer_size(None);
-
-    Ok(server_config)
+    config.set_max_idle_timeout(connection_timeout * 1000);
+    config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE);
+    config.set_max_send_udp_payload_size(MAX_DATAGRAM_SIZE);
+    config.set_initial_max_data(10_000_000);
+    config.set_initial_max_stream_data_bidi_local(10_000_000);
+    config.set_initial_max_stream_data_bidi_remote(10_000_000);
+    config.set_initial_max_stream_data_uni(10_000_000);
+    config.set_initial_max_streams_bidi(max_concurrent_streams as u64);
+    config.set_initial_max_streams_uni(max_concurrent_streams as u64);
+    config.set_disable_active_migration(true);
+    config.enable_early_data();
+    Ok(config)
 }

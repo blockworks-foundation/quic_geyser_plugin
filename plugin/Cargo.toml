@@ -21,7 +21,6 @@ solana-logger = { workspace = true }
 agave-geyser-plugin-interface = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
-quinn = { workspace = true }
 log = { workspace = true }
 thiserror = {workspace = true}
 
