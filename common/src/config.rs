@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{compression::CompressionType, quic::configure_client::DEFAULT_MAX_STREAMS};
 
+pub const DEFAULT_WINDOW_SIZE: u32 = 1_000_000;
+pub const DEFAULT_CONNECTION_TIMEOUT: u32 = 10;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigQuicPlugin {
@@ -39,8 +42,8 @@ impl Default for QuicParameters {
     fn default() -> Self {
         Self {
             max_number_of_streams_per_client: DEFAULT_MAX_STREAMS,
-            recieve_window_size: 1_000_000, // 1 Mb
-            connection_timeout: 10,         // 10s
+            recieve_window_size: DEFAULT_WINDOW_SIZE, // 1 Mb
+            connection_timeout: DEFAULT_CONNECTION_TIMEOUT, // 10s
         }
     }
 }

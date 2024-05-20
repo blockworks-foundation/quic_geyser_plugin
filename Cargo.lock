@@ -1303,25 +1303,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "geyser-quic-plugin-tester"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bincode",
- "clap",
- "futures",
- "log",
- "quic-geyser-client",
- "quic-geyser-common",
- "quic-geyser-plugin",
- "serde",
- "serde_json",
- "solana-rpc-client",
- "solana-sdk",
- "tokio",
-]
-
-[[package]]
 name = "gimli"
 version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2322,6 +2303,45 @@ dependencies = [
  "thiserror",
  "tokio",
  "vergen",
+]
+
+[[package]]
+name = "quic-plugin-tester-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "clap",
+ "futures",
+ "log",
+ "quic-geyser-client",
+ "quic-geyser-common",
+ "quic-geyser-plugin",
+ "serde",
+ "serde_json",
+ "solana-rpc-client",
+ "solana-sdk",
+ "tokio",
+]
+
+[[package]]
+name = "quic-plugin-tester-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "clap",
+ "futures",
+ "itertools",
+ "log",
+ "quic-geyser-client",
+ "quic-geyser-common",
+ "quic-geyser-plugin",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "solana-sdk",
+ "tokio",
 ]
 
 [[package]]

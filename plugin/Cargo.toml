@@ -25,7 +25,7 @@ quinn = { workspace = true }
 log = { workspace = true }
 thiserror = {workspace = true}
 
-quic-geyser-common = { path = "../common" }
+quic-geyser-common = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }

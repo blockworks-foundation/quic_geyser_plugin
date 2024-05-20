@@ -5,7 +5,8 @@ members = [
     "plugin",
     "client",
     "common",
-    "tester",
+    "examples/tester-client",
+    "examples/tester-server",
 ]
 
 [workspace.package]

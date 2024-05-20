@@ -39,7 +39,11 @@ pub struct QuicServer {
 }
 
 impl QuicServer {
-    pub fn new(runtime: Runtime, config: ConfigQuicPlugin) -> anyhow::Result<Self> {
+    pub fn new(
+        runtime: Runtime,
+        config: ConfigQuicPlugin,
+        drop_laggers: bool,
+    ) -> anyhow::Result<Self> {
         let server_config = configure_server(
             config.quic_parameters.max_number_of_streams_per_client,
             config.quic_parameters.recieve_window_size,
@@ -74,6 +78,7 @@ impl QuicServer {
                                     slot,
                                     compression_type,
                                     retry_count,
+                                    drop_laggers,
                                 );
                             }
                         }
@@ -83,15 +88,21 @@ impl QuicServer {
                                 parent,
                                 commitment_level,
                             });
-                            quic_connection_manager.dispatch(message, retry_count).await;
+                            quic_connection_manager
+                                .dispatch(message, retry_count, drop_laggers)
+                                .await;
                         }
                         ChannelMessage::BlockMeta(block_meta) => {
                             let message = Message::BlockMetaMsg(block_meta);
-                            quic_connection_manager.dispatch(message, retry_count).await;
+                            quic_connection_manager
+                                .dispatch(message, retry_count, drop_laggers)
+                                .await;
                         }
                         ChannelMessage::Transaction(transaction) => {
                             let message = Message::TransactionMsg(transaction);
-                            quic_connection_manager.dispatch(message, retry_count).await;
+                            quic_connection_manager
+                                .dispatch(message, retry_count, drop_laggers)
+                                .await;
                         }
                     }
                 }
@@ -118,6 +129,7 @@ fn process_account_message(
     slot: Slot,
     compression_type: CompressionType,
     retry_count: u64,
+    drop_laggers: bool,
 ) {
     tokio::spawn(async move {
         let slot_identifier = SlotIdentifier { slot };
@@ -130,6 +142,8 @@ fn process_account_message(
         );
 
         let message = Message::AccountMsg(geyser_account);
-        quic_connection_manager.dispatch(message, retry_count).await;
+        quic_connection_manager
+            .dispatch(message, retry_count, drop_laggers)
+            .await;
     });
 }

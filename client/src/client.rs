@@ -90,13 +90,12 @@ mod tests {
 
     use futures::StreamExt;
     use quic_geyser_common::{
-        filters::{AccountFilter, Filter},
+        filters::Filter,
         message::Message,
         quic::{configure_server::configure_server, connection_manager::ConnectionManager},
         types::{account::Account, connections_parameters::ConnectionParameters},
     };
     use quinn::{Endpoint, EndpointConfig, TokioRuntime};
-    use solana_sdk::pubkey::Pubkey;
     use tokio::{pin, sync::Notify};
 
     use crate::client::Client;
@@ -135,7 +134,7 @@ mod tests {
                 notify_server_start.notify_one();
                 notify_subscription.notified().await;
                 for msg in msgs {
-                    connection_manager.dispatch(msg, 10).await;
+                    connection_manager.dispatch(msg, 10, false).await;
                 }
             });
         }
@@ -146,9 +145,9 @@ mod tests {
         let client = Client::new(
             url,
             ConnectionParameters {
-                max_number_of_streams: 30,
-                streams_for_slot_data: 10,
-                streams_for_transactions: 10,
+                max_number_of_streams: 3,
+                streams_for_slot_data: 1,
+                streams_for_transactions: 1,
             },
         )
         .await

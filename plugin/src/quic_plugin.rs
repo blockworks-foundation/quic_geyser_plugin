@@ -40,7 +40,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
             .thread_name_fn(|| {
                 static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
                 let id = ATOMIC_ID.fetch_add(1, Ordering::Relaxed);
-                format!("solGeyserGrpc{id:02}")
+                format!("solGeyserQuic{id:02}")
             })
             .enable_all()
             .build()
@@ -50,7 +50,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
                 GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
             })?;
 
-        let quic_server = QuicServer::new(runtime, config.quic_plugin).map_err(|_| {
+        let quic_server = QuicServer::new(runtime, config.quic_plugin, true).map_err(|_| {
             GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
         })?;
         self.quic_server = Some(quic_server);

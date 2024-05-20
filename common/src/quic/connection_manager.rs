@@ -187,7 +187,7 @@ impl ConnectionManager {
         });
     }
 
-    pub async fn dispatch(&self, message: Message, retry_count: u64) {
+    pub async fn dispatch(&self, message: Message, retry_count: u64, drop_lagger: bool) {
         let lk = self.connections.read().await;
 
         for connection_data in lk.iter() {
@@ -216,7 +216,7 @@ impl ConnectionManager {
                 let id = connection_data.id;
 
                 tokio::spawn(async move {
-                    let permit_result = semaphore.try_acquire_owned();
+                    let permit_result = semaphore.clone().try_acquire_owned();
 
                     let _permit = match permit_result {
                         Ok(permit) => permit,
@@ -227,8 +227,11 @@ impl ConnectionManager {
                                 id,
                                 message_type
                             );
-                            connection.close(VarInt::from_u32(0), b"laggy client");
-                            return;
+                            if drop_lagger {
+                                connection.close(VarInt::from_u32(0), b"laggy client");
+                                return;
+                            }
+                            semaphore.acquire_owned().await.expect("Permit is aquired")
                         }
                     };
 
