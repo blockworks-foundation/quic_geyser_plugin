@@ -48,8 +48,8 @@ pub fn main() -> anyhow::Result<()> {
     let mut write_version = 1;
     let mut rand = thread_rng();
     let data = (0..args.account_data_size as usize)
-    .map(|_| rand.gen::<u8>())
-    .collect_vec();
+        .map(|_| rand.gen::<u8>())
+        .collect_vec();
     loop {
         std::thread::sleep(Duration::from_secs(1) - Instant::now().duration_since(instant));
         instant = Instant::now();

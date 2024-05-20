@@ -78,7 +78,8 @@ impl QuicServer {
                                     slot,
                                     compression_type,
                                     retry_count,
-                                );
+                                )
+                                .await;
                             }
                         }
                         ChannelMessage::Slot(slot, parent, commitment_level) => {
@@ -116,24 +117,22 @@ impl QuicServer {
     }
 }
 
-fn process_account_message(
+async fn process_account_message(
     quic_connection_manager: ConnectionManager,
     account: AccountData,
     slot: Slot,
     compression_type: CompressionType,
     retry_count: u64,
 ) {
-    tokio::spawn(async move {
-        let slot_identifier = SlotIdentifier { slot };
-        let geyser_account = GeyserAccount::new(
-            account.pubkey,
-            account.account,
-            compression_type,
-            slot_identifier,
-            account.write_version,
-        );
+    let slot_identifier = SlotIdentifier { slot };
+    let geyser_account = GeyserAccount::new(
+        account.pubkey,
+        account.account,
+        compression_type,
+        slot_identifier,
+        account.write_version,
+    );
 
-        let message = Message::AccountMsg(geyser_account);
-        quic_connection_manager.dispatch(message, retry_count).await;
-    });
+    let message = Message::AccountMsg(geyser_account);
+    quic_connection_manager.dispatch(message, retry_count).await;
 }
