@@ -41,6 +41,8 @@ pub fn main() -> anyhow::Result<()> {
     let quic_server = QuicServer::new(runtime, config, args.max_lagging).unwrap();
 
     let mut instant = Instant::now();
+    // to avoid errors
+    std::thread::sleep(Duration::from_millis(500));
 
     let mut slot = 1;
     let mut write_version = 1;
