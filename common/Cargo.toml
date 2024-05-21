@@ -21,6 +21,7 @@ log = { workspace = true }
 thiserror = {workspace = true}
 itertools = { workspace = true }
 mio = { workspace = true, features = ["net", "os-poll"] }
+mio_channel = { workspace = true }
 ring = {workspace = true}
 
 [dev-dependencies]

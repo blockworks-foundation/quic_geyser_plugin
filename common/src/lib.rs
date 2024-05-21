@@ -1,3 +1,4 @@
+pub mod channel_message;
 pub mod compression;
 pub mod config;
 pub mod filters;

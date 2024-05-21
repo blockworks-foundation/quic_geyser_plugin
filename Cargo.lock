@@ -2013,6 +2013,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mio_channel"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "170b566df2b150386ce5b88760f512554b10aeb3fc80916e8cd233cca2676697"
+dependencies = [
+ "mio",
+]
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2452,6 +2461,7 @@ dependencies = [
  "log",
  "lz4",
  "mio",
+ "mio_channel",
  "pkcs8",
  "quiche",
  "rcgen",

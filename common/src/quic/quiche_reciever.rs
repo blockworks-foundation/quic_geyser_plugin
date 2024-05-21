@@ -34,6 +34,7 @@ mod tests {
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
         str::FromStr,
+        thread::sleep,
         time::Duration,
     };
 
@@ -97,7 +98,36 @@ mod tests {
                     panic!("send() failed: {:?}", e);
                 }
 
-                send_message(&mut conn, 0, &message_to_send).unwrap();
+                while !conn.is_established() {
+                    sleep(Duration::from_millis(100));
+                }
+
+                send_message(&mut conn, 4, &message_to_send).unwrap();
+
+                // Generate outgoing QUIC packets and send them on the UDP socket, until
+                // quiche reports that there are no more packets to be sent.
+                loop {
+                    let (write, send_info) = match conn.send(&mut out) {
+                        Ok(v) => v,
+
+                        Err(quiche::Error::Done) => {
+                            break;
+                        }
+
+                        Err(e) => {
+                            conn.close(false, 0x1, b"fail").ok();
+                            break;
+                        }
+                    };
+
+                    if let Err(e) = socket.send_to(&out[..write], send_info.to) {
+                        if e.kind() == std::io::ErrorKind::WouldBlock {
+                            break;
+                        }
+
+                        panic!("send() failed: {:?}", e);
+                    }
+                }
                 conn.close(true, 0, b"not required").unwrap();
             })
         };
@@ -179,7 +209,7 @@ mod tests {
                 if let Err(e) = socket.send_to(out, from) {
                     panic!("send() failed: {:?}", e);
                 } else {
-                    break;
+                    continue;
                 }
             }
             let odcid = validate_token(&from, token);
@@ -202,7 +232,23 @@ mod tests {
             let mut conn =
                 quiche::accept(&scid, odcid.as_ref(), local_addr, from, &mut config).unwrap();
 
-            let recvd_message = recv_message(&mut conn, 0).unwrap();
+            let stream_id = {
+                let mut stream_id = 0;
+                loop {
+                    let readable = conn.stream_readable_next();
+                    match readable {
+                        Some(id) => {
+                            stream_id = id;
+                            break;
+                        }
+                        None => {
+                            sleep(Duration::from_millis(100));
+                        }
+                    }
+                }
+                stream_id
+            };
+            let recvd_message = recv_message(&mut conn, stream_id).unwrap();
             assert_eq!(recvd_message, message);
             std::thread::sleep(Duration::from_secs(1));
             assert_eq!(conn.is_closed(), true);
@@ -254,7 +300,8 @@ mod tests {
                     panic!("send() failed: {:?}", e);
                 }
 
-                let recvd_message = recv_message(&mut conn, 0).unwrap();
+                let stream_id = conn.stream_readable_next().unwrap();
+                let recvd_message = recv_message(&mut conn, stream_id).unwrap();
                 assert_eq!(recvd_message, message);
                 std::thread::sleep(Duration::from_secs(1));
                 assert_eq!(conn.is_closed(), true);
@@ -338,7 +385,7 @@ mod tests {
                 if let Err(e) = socket.send_to(out, from) {
                     panic!("send() failed: {:?}", e);
                 } else {
-                    break;
+                    continue;
                 }
             }
             let odcid = validate_token(&from, token);
@@ -361,7 +408,8 @@ mod tests {
             let mut conn =
                 quiche::accept(&scid, odcid.as_ref(), local_addr, from, &mut config).unwrap();
 
-            send_message(&mut conn, 0, &message).unwrap();
+            let stream_id = conn.stream_writable_next().unwrap();
+            send_message(&mut conn, stream_id, &message).unwrap();
             conn.close(true, 0, b"not required").unwrap();
 
             jh.join().unwrap();
