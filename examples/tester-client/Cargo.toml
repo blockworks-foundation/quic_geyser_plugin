@@ -16,6 +16,7 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
 bincode = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 quic-geyser-client = { workspace = true }
 quic-geyser-common = { workspace = true }

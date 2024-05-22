@@ -18,6 +18,7 @@ use solana_sdk::{account::Account, pubkey::Pubkey};
 pub mod cli;
 
 pub fn main() {
+    tracing_subscriber::fmt::init();
     let args = Args::parse();
 
     let config = ConfigQuicPlugin {

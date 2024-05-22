@@ -2505,6 +2505,7 @@ dependencies = [
  "serde_json",
  "solana-rpc-client",
  "solana-sdk",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -2523,6 +2524,7 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-sdk",
+ "tracing-subscriber",
 ]
 
 [[package]]

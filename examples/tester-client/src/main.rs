@@ -39,6 +39,7 @@ pub mod cli;
 //println!("{}", config_json);
 
 pub fn main() {
+    tracing_subscriber::fmt::init();
     let args = Args::parse();
     println!("Connecting");
     let (client, reciever) = Client::new(
