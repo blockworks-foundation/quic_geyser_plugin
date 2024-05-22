@@ -15,7 +15,7 @@ pub fn send_message(
     stream_id: u64,
     message: &Vec<u8>,
 ) -> anyhow::Result<()> {
-    let written = match connection.stream_send(stream_id, &message, true) {
+    let written = match connection.stream_send(stream_id, message, true) {
         Ok(v) => v,
 
         Err(quiche::Error::Done) => 0,

@@ -1,16 +1,15 @@
 use std::{
     sync::{atomic::AtomicU64, Arc},
-    time::Duration,
+    thread::sleep,
+    time::{Duration, Instant},
 };
 
 use clap::Parser;
 use cli::Args;
-use futures::StreamExt;
 use quic_geyser_client::client::Client;
 use quic_geyser_common::{filters::Filter, types::connections_parameters::ConnectionParameters};
-use solana_rpc_client::nonblocking::rpc_client::RpcClient;
+use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::commitment_config::CommitmentConfig;
-use tokio::{pin, time::Instant};
 
 pub mod cli;
 
@@ -36,13 +35,10 @@ pub mod cli;
 // let config_json = json!(config);
 //println!("{}", config_json);
 
-#[tokio::main]
-async fn main() {
+pub fn main() {
     let args = Args::parse();
     println!("Connecting");
-    let client = Client::new(args.url, ConnectionParameters::default())
-        .await
-        .unwrap();
+    let (client, reciever) = Client::new(args.url, ConnectionParameters::default()).unwrap();
     println!("Connected");
 
     let bytes_transfered = Arc::new(AtomicU64::new(0));
@@ -60,15 +56,12 @@ async fn main() {
     if let Some(rpc_url) = args.rpc_url {
         let cluster_slot = cluster_slot.clone();
         let rpc = RpcClient::new(rpc_url);
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                let slot = rpc
-                    .get_slot_with_commitment(CommitmentConfig::processed())
-                    .await
-                    .unwrap();
-                cluster_slot.store(slot, std::sync::atomic::Ordering::Relaxed);
-            }
+        std::thread::spawn(move || loop {
+            sleep(Duration::from_millis(100));
+            let slot = rpc
+                .get_slot_with_commitment(CommitmentConfig::processed())
+                .unwrap();
+            cluster_slot.store(slot, std::sync::atomic::Ordering::Relaxed);
         });
     }
 
@@ -84,36 +77,33 @@ async fn main() {
         let account_slot = account_slot.clone();
         let slot_slot = slot_slot.clone();
         let blockmeta_slot = blockmeta_slot.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                let bytes_transfered =
-                    bytes_transfered.swap(0, std::sync::atomic::Ordering::Relaxed);
-                println!("------------------------------------------");
-                println!(" Bytes Transfered : {}", bytes_transfered);
-                println!(
-                    " Accounts transfered size (uncompressed) : {}",
-                    total_accounts_size.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    " Accounts Notified : {}",
-                    account_notification.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    " Slots Notified : {}",
-                    slot_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    " Blockmeta notified : {}",
-                    blockmeta_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    " Transactions notified : {}",
-                    transaction_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
+        std::thread::spawn(move || loop {
+            sleep(Duration::from_secs(1));
+            let bytes_transfered = bytes_transfered.swap(0, std::sync::atomic::Ordering::Relaxed);
+            println!("------------------------------------------");
+            println!(" Bytes Transfered : {}", bytes_transfered);
+            println!(
+                " Accounts transfered size (uncompressed) : {}",
+                total_accounts_size.swap(0, std::sync::atomic::Ordering::Relaxed)
+            );
+            println!(
+                " Accounts Notified : {}",
+                account_notification.swap(0, std::sync::atomic::Ordering::Relaxed)
+            );
+            println!(
+                " Slots Notified : {}",
+                slot_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
+            );
+            println!(
+                " Blockmeta notified : {}",
+                blockmeta_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
+            );
+            println!(
+                " Transactions notified : {}",
+                transaction_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
+            );
 
-                println!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {} ", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed));
-            }
+            println!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {} ", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed));
         });
     }
 
@@ -125,15 +115,12 @@ async fn main() {
             Filter::Slot,
             Filter::BlockMeta,
         ])
-        .await
         .unwrap();
     println!("Subscribed");
 
-    let stream = client.create_stream();
-    pin!(stream);
     let instant = Instant::now();
 
-    while let Some(message) = stream.next().await {
+    while let Ok(message) = reciever.recv() {
         let message_size = bincode::serialize(&message).unwrap().len();
         bytes_transfered.fetch_add(message_size as u64, std::sync::atomic::Ordering::Relaxed);
         match message {
@@ -181,9 +168,6 @@ async fn main() {
                 transaction_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             quic_geyser_common::message::Message::Filters(_) => {
-                // Not supported
-            }
-            quic_geyser_common::message::Message::AddStream(_) => {
                 // Not supported
             }
         }

@@ -349,28 +349,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-stream"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd56dd203fef61ac097dd65721a419ddccb106b2d2b70ba60a6b529f03961a51"
-dependencies = [
- "async-stream-impl",
- "futures-core",
- "pin-project-lite",
-]
-
-[[package]]
-name = "async-stream-impl"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16e62a023e7c117e27523144c5d2459f4397fcc3cab0085af8e2224f643a0193"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.63",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2458,12 +2436,14 @@ name = "quic-geyser-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-stream",
- "futures",
+ "itertools",
  "log",
+ "mio",
+ "mio_channel",
  "quic-geyser-common",
+ "rand 0.8.5",
  "solana-sdk",
- "tokio",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -2488,7 +2468,6 @@ dependencies = [
  "solana-sdk",
  "solana-transaction-status",
  "thiserror",
- "tokio",
  "tracing-subscriber",
 ]
 
@@ -2508,7 +2487,6 @@ dependencies = [
  "solana-logger",
  "solana-sdk",
  "thiserror",
- "tokio",
  "vergen",
 ]
 
@@ -2519,7 +2497,6 @@ dependencies = [
  "anyhow",
  "bincode",
  "clap",
- "futures",
  "log",
  "quic-geyser-client",
  "quic-geyser-common",
@@ -2528,7 +2505,6 @@ dependencies = [
  "serde_json",
  "solana-rpc-client",
  "solana-sdk",
- "tokio",
 ]
 
 [[package]]
@@ -2538,7 +2514,6 @@ dependencies = [
  "anyhow",
  "bincode",
  "clap",
- "futures",
  "itertools",
  "log",
  "quic-geyser-client",
@@ -2548,7 +2523,6 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-sdk",
- "tokio",
 ]
 
 [[package]]

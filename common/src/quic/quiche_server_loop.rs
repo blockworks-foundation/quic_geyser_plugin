@@ -235,19 +235,14 @@ pub fn server_loop(
                         let message =
                             recv_message(&mut client.conn, &mut client.read_streams, stream);
                         match message {
-                            Ok(Some(message)) => {
-                                match message {
-                                    Message::Filters(mut filters) => {
-                                        client.filters.append(&mut filters);
-                                    }
-                                    Message::AddStream(_) => {
-                                        // do nothing
-                                    }
-                                    _ => {
-                                        log::error!("unknown message from the client");
-                                    }
+                            Ok(Some(message)) => match message {
+                                Message::Filters(mut filters) => {
+                                    client.filters.append(&mut filters);
                                 }
-                            }
+                                _ => {
+                                    log::error!("unknown message from the client");
+                                }
+                            },
                             Ok(None) => {}
                             Err(e) => {
                                 log::error!("Error recieving message : {e}")
@@ -267,8 +262,8 @@ pub fn server_loop(
                         })
                         .map(|x| x.1)
                         .collect_vec();
-                    if dispatch_to.len() > 0 {
-                        let message = match message {
+                    if !dispatch_to.is_empty() {
+                        let (message, priority) = match message {
                             ChannelMessage::Account(account, slot, _) => {
                                 let slot_identifier = SlotIdentifier { slot };
                                 let geyser_account = Account::new(
@@ -279,26 +274,39 @@ pub fn server_loop(
                                     account.write_version,
                                 );
 
-                                Message::AccountMsg(geyser_account)
+                                (Message::AccountMsg(geyser_account), 4)
                             }
-                            ChannelMessage::Slot(slot, parent, commitment_level) => {
+                            ChannelMessage::Slot(slot, parent, commitment_level) => (
                                 Message::SlotMsg(SlotMeta {
                                     slot,
                                     parent,
                                     commitment_level,
-                                })
-                            }
+                                }),
+                                1,
+                            ),
                             ChannelMessage::BlockMeta(block_meta) => {
-                                Message::BlockMetaMsg(block_meta)
+                                (Message::BlockMetaMsg(block_meta), 2)
                             }
                             ChannelMessage::Transaction(transaction) => {
-                                Message::TransactionMsg(transaction)
+                                (Message::TransactionMsg(transaction), 3)
                             }
                         };
                         let binary = bincode::serialize(&message)
                             .expect("Message should be serializable in binary");
                         for client in dispatch_to {
                             let stream_id = client.next_stream;
+                            match client.conn.stream_priority(stream_id, priority, true) {
+                                Ok(_) => {
+                                    log::trace!("priority was set correctly");
+                                }
+                                Err(e) => {
+                                    log::error!(
+                                        "Unable to set priority for the stream {}, error {}",
+                                        stream_id,
+                                        e
+                                    );
+                                }
+                            }
                             client.next_stream = get_next_unidi(stream_id, true);
                             log::debug!(
                                 "dispatching {} on stream id : {}",

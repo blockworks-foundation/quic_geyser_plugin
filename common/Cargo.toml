@@ -16,7 +16,6 @@ rustls = { workspace = true, default-features = false }
 rcgen = { workspace = true }
 pkcs8 = { workspace = true }
 anyhow = { workspace = true }
-tokio = { workspace = true }
 log = { workspace = true }
 thiserror = {workspace = true}
 itertools = { workspace = true }

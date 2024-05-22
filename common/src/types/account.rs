@@ -21,24 +21,6 @@ pub struct Account {
 }
 
 impl Account {
-    #[cfg(test)]
-    pub fn get_account_for_test(slot: u64, data_size: usize) -> Self {
-        use itertools::Itertools;
-
-        Account {
-            slot_identifier: SlotIdentifier { slot },
-            pubkey: Pubkey::new_unique(),
-            owner: Pubkey::new_unique(),
-            write_version: 0,
-            lamports: 12345,
-            rent_epoch: u64::MAX,
-            executable: false,
-            data: (0..data_size).map(|_| rand::random::<u8>()).collect_vec(),
-            compression_type: CompressionType::None,
-            data_length: data_size as u64,
-        }
-    }
-
     pub fn new(
         pubkey: Pubkey,
         solana_account: SolanaAccount,
@@ -48,7 +30,7 @@ impl Account {
     ) -> Self {
         let data_length = solana_account.data.len() as u64;
 
-        let data = if solana_account.data.len() > 0 {
+        let data = if !solana_account.data.is_empty() {
             match compression_type {
                 CompressionType::None => solana_account.data,
                 CompressionType::Lz4Fast(speed) => lz4::block::compress(

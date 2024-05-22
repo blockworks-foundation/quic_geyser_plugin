@@ -9,9 +9,13 @@ edition = "2021"
 
 solana-sdk = { workspace = true }
 anyhow = { workspace = true }
-futures = { workspace = true }
-async-stream = { workspace = true }
-tokio = { workspace = true }
 log = { workspace = true }
+mio = { workspace = true }
+mio_channel = { workspace = true }
 
 quic-geyser-common = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+tracing-subscriber = { workspace = true }
+itertools = { workspace = true }

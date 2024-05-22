@@ -3,10 +3,7 @@ use crate::quic::configure_server::ALPN_GEYSER_PROTOCOL_ID;
 use super::configure_server::MAX_DATAGRAM_SIZE;
 
 pub const DEFAULT_MAX_STREAMS: u32 = 4096;
-pub const DEFAULT_MAX_SLOT_BLOCKMETA_STREAMS: u32 = 4;
-pub const DEFAULT_MAX_TRANSACTION_STREAMS: u32 = 32;
-pub const DEFAULT_MAX_ACCOUNT_STREAMS: u32 =
-    DEFAULT_MAX_STREAMS - DEFAULT_MAX_SLOT_BLOCKMETA_STREAMS - DEFAULT_MAX_TRANSACTION_STREAMS;
+pub const DEFAULT_MAX_RECIEVE_WINDOW_SIZE: u64 = 64_000_000; // 64 MBs
 
 pub fn configure_client(
     maximum_concurrent_streams: u32,

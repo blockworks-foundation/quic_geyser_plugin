@@ -1,4 +1,7 @@
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use crate::{
     message::Message,
@@ -18,6 +21,7 @@ pub fn client_loop(
     server_address: SocketAddr,
     mut message_send_queue: mio_channel::Receiver<Message>,
     message_recv_queue: std::sync::mpsc::Sender<Message>,
+    is_connected: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
     let mut poll = mio::Poll::new()?;
@@ -47,7 +51,7 @@ pub fn client_loop(
     let mut out = [0; MAX_DATAGRAM_SIZE];
     let (write, send_info) = conn.send(&mut out).expect("initial send failed");
 
-    while let Err(e) = socket.send_to(&out[..write], send_info.to) {
+    if let Err(e) = socket.send_to(&out[..write], send_info.to) {
         bail!("send() failed: {:?}", e);
     }
 
@@ -56,6 +60,7 @@ pub fn client_loop(
     let mut out = [0; MAX_DATAGRAM_SIZE];
     let mut partial_responses = PartialResponses::new();
     let mut read_streams = ReadStreams::new();
+    let mut connected = false;
 
     'client: loop {
         poll.poll(&mut events, conn.timeout()).unwrap();
@@ -134,6 +139,11 @@ pub fn client_loop(
             }
         }
 
+        if !connected && conn.is_established() {
+            is_connected.store(true, std::sync::atomic::Ordering::Relaxed);
+            connected = true;
+        }
+
         // chanel updates
         if channel_updates && conn.is_established() {
             // channel events
@@ -190,7 +200,7 @@ mod tests {
     use std::{
         net::{IpAddr, Ipv4Addr, SocketAddr},
         str::FromStr,
-        sync::mpsc,
+        sync::{atomic::AtomicBool, mpsc, Arc},
         thread::sleep,
         time::Duration,
     };
@@ -311,12 +321,14 @@ mod tests {
         let _client_loop_jh = std::thread::spawn(move || {
             let client_config = configure_client(100, 20_000_000, 1).unwrap();
             let socket_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+            let is_connected = Arc::new(AtomicBool::new(false));
             if let Err(e) = client_loop(
                 client_config,
                 socket_addr,
                 server_addr,
                 rx_sent_queue,
                 sx_recv_queue,
+                is_connected,
             ) {
                 println!("client stopped with error {e}");
             }
