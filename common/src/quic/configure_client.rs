@@ -2,7 +2,7 @@ use crate::quic::configure_server::ALPN_GEYSER_PROTOCOL_ID;
 
 use super::configure_server::MAX_DATAGRAM_SIZE;
 
-pub const DEFAULT_MAX_STREAMS: u32 = 32 * 1024;
+pub const DEFAULT_MAX_STREAMS: u32 = 64 * 1024;
 pub const DEFAULT_MAX_RECIEVE_WINDOW_SIZE: u64 = 64_000_000; // 64 MBs
 
 pub fn configure_client(

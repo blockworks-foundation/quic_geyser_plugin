@@ -10,7 +10,7 @@ use itertools::Itertools;
 use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
     config::{CompressionParameters, ConfigQuicPlugin, QuicParameters},
-    quic::quic_server::QuicServer,
+    quic::{configure_client::DEFAULT_MAX_RECIEVE_WINDOW_SIZE, quic_server::QuicServer},
 };
 use rand::{thread_rng, Rng};
 use solana_sdk::{account::Account, pubkey::Pubkey};
@@ -22,7 +22,11 @@ pub fn main() {
 
     let config = ConfigQuicPlugin {
         address: SocketAddr::from_str(format!("0.0.0.0:{}", args.port).as_str()).unwrap(),
-        quic_parameters: QuicParameters::default(),
+        quic_parameters: QuicParameters {
+            max_number_of_streams_per_client: 1024 * 1024,
+            recieve_window_size: DEFAULT_MAX_RECIEVE_WINDOW_SIZE,
+            connection_timeout: 60,
+        },
         compression_parameters: CompressionParameters {
             compression_type: quic_geyser_common::compression::CompressionType::None,
         },

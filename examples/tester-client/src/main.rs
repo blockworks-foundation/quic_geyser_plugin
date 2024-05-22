@@ -7,7 +7,10 @@ use std::{
 use clap::Parser;
 use cli::Args;
 use quic_geyser_client::client::Client;
-use quic_geyser_common::{filters::Filter, types::connections_parameters::ConnectionParameters};
+use quic_geyser_common::{
+    filters::Filter, quic::configure_client::DEFAULT_MAX_RECIEVE_WINDOW_SIZE,
+    types::connections_parameters::ConnectionParameters,
+};
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::commitment_config::CommitmentConfig;
 
@@ -38,7 +41,15 @@ pub mod cli;
 pub fn main() {
     let args = Args::parse();
     println!("Connecting");
-    let (client, reciever) = Client::new(args.url, ConnectionParameters::default()).unwrap();
+    let (client, reciever) = Client::new(
+        args.url,
+        ConnectionParameters {
+            max_number_of_streams: 1024 * 1024,
+            recieve_window_size: DEFAULT_MAX_RECIEVE_WINDOW_SIZE,
+            timeout_in_seconds: 30,
+        },
+    )
+    .unwrap();
     println!("Connected");
 
     let bytes_transfered = Arc::new(AtomicU64::new(0));
