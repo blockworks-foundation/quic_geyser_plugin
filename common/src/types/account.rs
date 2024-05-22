@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use solana_sdk::{account::Account as SolanaAccount, clock::Slot, pubkey::Pubkey};
+use solana_sdk::{account::Account as SolanaAccount, pubkey::Pubkey};
 
 use crate::compression::CompressionType;
 
@@ -21,7 +21,10 @@ pub struct Account {
 }
 
 impl Account {
-    pub fn get_account_for_test(slot: Slot, data_size: usize) -> Self {
+    #[cfg(test)]
+    pub fn get_account_for_test(slot: u64, data_size: usize) -> Self {
+        use itertools::Itertools;
+
         Account {
             slot_identifier: SlotIdentifier { slot },
             pubkey: Pubkey::new_unique(),
@@ -30,7 +33,7 @@ impl Account {
             lamports: 12345,
             rent_epoch: u64::MAX,
             executable: false,
-            data: vec![178; data_size],
+            data: (0..data_size).map(|_| rand::random::<u8>()).collect_vec(),
             compression_type: CompressionType::None,
             data_length: data_size as u64,
         }

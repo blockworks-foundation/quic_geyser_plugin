@@ -17,13 +17,15 @@ pub fn recv_message(
         let mut buf = [0; MAX_DATAGRAM_SIZE]; // 10kk buffer size
         match connection.stream_recv(stream_id, &mut buf) {
             Ok((read, fin)) => {
-                total_buf.append(&mut buf[0..read].to_vec());
+                log::debug!("read {} on stream {}", read, stream_id);
+                total_buf.extend_from_slice(&buf[..read]);
                 if fin {
+                    log::debug!("fin stream : {}", stream_id);
                     return Ok(bincode::deserialize::<Message>(&total_buf)?);
                 }
             }
-            Err(_) => {
-                bail!("Fail to read from stream {stream_id}");
+            Err(e) => {
+                bail!("Fail to read from stream {stream_id} : error : {e}");
             }
         }
     }

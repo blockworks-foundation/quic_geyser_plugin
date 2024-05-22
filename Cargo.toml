@@ -48,13 +48,14 @@ async-stream = "0.3.5"
 
 mio = "0.8.11"
 mio_channel = "0.1.3"
-quiche = "0.21.0"
+quiche = "=0.21.0"
 boring = "4.6.0"
 ring = "0.17.8"
 
 cargo-lock = "9.0.0"
 git-version = "0.3.5"
 vergen = "8.2.1"
+rand = "0.8.5"
 
 quic-geyser-common = {path = "common", version="0.1.0"}
 quic-geyser-client = {path = "client", version="0.1.0"}

@@ -12,7 +12,7 @@ use crate::{
     message::Message,
     quic::{
         quiche_reciever::recv_message,
-        quiche_utils::{mint_token, validate_token},
+        quiche_utils::{get_next_unidi, mint_token, validate_token},
     },
     types::{account::Account, block_meta::SlotMeta, slot_identifier::SlotIdentifier},
 };
@@ -28,7 +28,7 @@ struct Client {
     pub conn: quiche::Connection,
     pub partial_responses: HashMap<u64, PartialResponse>,
     pub filters: Vec<Filter>,
-    pub last_sent_stream_id: u64,
+    pub next_stream: u64,
 }
 
 type ClientMap = HashMap<quiche::ConnectionId<'static>, Client>;
@@ -47,8 +47,11 @@ pub fn server_loop(
     let mut poll = mio::Poll::new()?;
     let mut events = mio::Events::with_capacity(1024);
 
-    poll.registry()
-        .register(&mut socket, mio::Token(0), mio::Interest::READABLE)?;
+    poll.registry().register(
+        &mut socket,
+        mio::Token(0),
+        mio::Interest::READABLE | mio::Interest::WRITABLE,
+    )?;
 
     poll.registry().register(
         &mut message_send_queue,
@@ -62,11 +65,12 @@ pub fn server_loop(
     let mut clients = ClientMap::new();
     loop {
         let timeout = clients.values().filter_map(|c| c.conn.timeout()).min();
+        log::debug!("timeout : {}", timeout.unwrap_or_default().as_millis());
 
         poll.poll(&mut events, timeout).unwrap();
 
-        let network_updates = events.iter().any(|x| x.token().0 == 0);
-        let channel_updates = events.iter().any(|x| x.token().0 == 1);
+        let network_updates = true;
+        let channel_updates = true;
         if network_updates {
             'read: loop {
                 if events.is_empty() {
@@ -139,7 +143,7 @@ pub fn server_loop(
 
                     // Do stateless retry if the client didn't send a token.
                     if token.is_empty() {
-                        log::warn!("Doing stateless retry");
+                        log::debug!("Doing stateless retry");
 
                         let new_token = mint_token(&hdr, &from);
 
@@ -189,7 +193,7 @@ pub fn server_loop(
                         conn,
                         partial_responses: HashMap::new(),
                         filters: Vec::new(),
-                        last_sent_stream_id: u64::MAX / 2,
+                        next_stream: get_next_unidi(0, true),
                     };
                     clients.insert(scid.clone(), client);
                     clients
@@ -234,8 +238,8 @@ pub fn server_loop(
                                     Message::Filters(mut filters) => {
                                         client.filters.append(&mut filters);
                                     }
-                                    Message::ConnectionParameters(_) => {
-                                        // ignore for now not needed
+                                    Message::AddStream(_) => {
+                                        // do nothing
                                     }
                                     _ => {
                                         log::error!("unknown message from the client");
@@ -254,7 +258,10 @@ pub fn server_loop(
                 while let Ok(message) = message_send_queue.try_recv() {
                     let dispatch_to = clients
                         .iter_mut()
-                        .filter(|(_, client)| client.filters.iter().any(|x| x.allows(&message)))
+                        .filter(|(_, client)| {
+                            client.conn.is_established()
+                                && client.filters.iter().any(|x| x.allows(&message))
+                        })
                         .map(|x| x.1)
                         .collect_vec();
                     if dispatch_to.len() > 0 {
@@ -288,8 +295,13 @@ pub fn server_loop(
                         let binary = convert_to_binary(&message)
                             .expect("Message should be serializable in binary");
                         for client in dispatch_to {
-                            client.last_sent_stream_id += 1;
-                            let stream_id = client.last_sent_stream_id;
+                            let stream_id = client.next_stream;
+                            client.next_stream = get_next_unidi(stream_id, true);
+                            log::debug!(
+                                "dispatching {} on stream id : {}",
+                                binary.len(),
+                                stream_id
+                            );
                             let written = match client.conn.stream_send(stream_id, &binary, true) {
                                 Ok(v) => v,
 
@@ -304,6 +316,7 @@ pub fn server_loop(
                                     continue;
                                 }
                             };
+                            log::debug!("dispatched {} on stream id : {}", written, stream_id);
 
                             if written < binary.len() {
                                 let response = PartialResponse {

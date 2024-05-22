@@ -4,14 +4,14 @@ use solana_sdk::{
 
 use crate::types::{block_meta::BlockMeta, transaction::Transaction};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountData {
     pub pubkey: Pubkey,
     pub account: Account,
     pub write_version: u64,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChannelMessage {
     Account(AccountData, Slot, bool),
     Slot(u64, u64, CommitmentLevel),

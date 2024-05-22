@@ -183,7 +183,7 @@ async fn main() {
             quic_geyser_common::message::Message::Filters(_) => {
                 // Not supported
             }
-            quic_geyser_common::message::Message::ConnectionParameters(_) => {
+            quic_geyser_common::message::Message::AddStream(_) => {
                 // Not supported
             }
         }

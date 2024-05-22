@@ -25,3 +25,5 @@ mio_channel = { workspace = true }
 ring = {workspace = true}
 
 [dev-dependencies]
+rand = { workspace = true }
+tracing-subscriber = { workspace = true }

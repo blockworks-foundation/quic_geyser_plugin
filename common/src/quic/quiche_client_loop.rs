@@ -4,7 +4,7 @@ use crate::{
     message::Message,
     quic::{
         configure_server::MAX_DATAGRAM_SIZE, quiche_reciever::recv_message,
-        quiche_sender::send_message,
+        quiche_sender::send_message, quiche_utils::get_next_unidi,
     },
 };
 use anyhow::bail;
@@ -49,7 +49,7 @@ pub fn client_loop(
         bail!("send() failed: {:?}", e);
     }
 
-    let mut stream_send_id = 0;
+    let mut current_stream_id = 3;
     let mut buf = [0; 65535];
     let mut out = [0; MAX_DATAGRAM_SIZE];
 
@@ -66,8 +66,8 @@ pub fn client_loop(
             break;
         }
 
-        let network_updates = events.iter().any(|x| x.token().0 == 0);
-        let channel_updates = events.iter().any(|x| x.token().0 == 1);
+        let network_updates = true;
+        let channel_updates = true;
 
         if network_updates {
             'read: loop {
@@ -114,7 +114,7 @@ pub fn client_loop(
                 let message = recv_message(&mut conn, stream);
                 match message {
                     Ok(message) => {
-                        message_recv_queue.send(message)?;
+                        message_recv_queue.send(message).unwrap();
                     }
                     Err(e) => {
                         log::error!("Error recieving message : {e}")
@@ -122,13 +122,15 @@ pub fn client_loop(
                 }
             }
         }
+
         // chanel updates
-        if channel_updates {
+        if channel_updates && conn.is_established() {
             // channel events
-            let message_to_send = message_send_queue.try_recv()?;
-            stream_send_id += 1;
-            if let Err(e) = send_message(&mut conn, stream_send_id, &message_to_send) {
-                log::error!("Error sending message on stream : {}", e);
+            if let Ok(message_to_send) = message_send_queue.try_recv() {
+                current_stream_id = get_next_unidi(current_stream_id, false);
+                if let Err(e) = send_message(&mut conn, current_stream_id, &message_to_send) {
+                    log::error!("Error sending message on stream : {}", e);
+                }
             }
         }
 
@@ -171,198 +173,210 @@ mod tests {
         net::{IpAddr, Ipv4Addr, SocketAddr},
         str::FromStr,
         sync::mpsc,
+        thread::sleep,
+        time::Duration,
     };
 
     use itertools::Itertools;
-    use quiche::ConnectionId;
-    use ring::rand::SystemRandom;
-    use std::net::UdpSocket;
+    use solana_sdk::{account::Account, pubkey::Pubkey};
 
     use crate::{
+        channel_message::{AccountData, ChannelMessage},
+        compression::CompressionType,
+        filters::Filter,
         message::Message,
         quic::{
-            configure_client::configure_client,
-            configure_server::{configure_server, MAX_DATAGRAM_SIZE},
-            quiche_reciever::recv_message,
-            quiche_sender::send_message,
-            quiche_utils::{mint_token, validate_token},
+            configure_client::configure_client, configure_server::configure_server,
+            quiche_server_loop::server_loop,
         },
-        types::{account::Account, block_meta::SlotMeta},
+        types::block_meta::SlotMeta,
     };
 
     use super::client_loop;
 
     #[test]
     fn test_send_and_recieve_of_large_account_with_client_loop() {
-        let mut config = configure_server(1, 100000, 1).unwrap();
-
+        tracing_subscriber::fmt::init();
         // Setup the event loop.
-        let socket_addr = SocketAddr::from_str("0.0.0.0:0").unwrap();
-        let socket = UdpSocket::bind(socket_addr).unwrap();
+        let socket_addr = SocketAddr::from_str("0.0.0.0:10900").unwrap();
 
-        let port = socket.local_addr().unwrap().port();
-        let local_addr = socket.local_addr().unwrap();
+        let port = 10900;
 
-        let account = Account::get_account_for_test(123456, 10_000_000);
-        let message_1 = Message::SlotMsg(SlotMeta {
-            slot: 1,
-            parent: 0,
-            commitment_level: solana_sdk::commitment_config::CommitmentLevel::Confirmed,
+        let message_1 = ChannelMessage::Slot(
+            3,
+            2,
+            solana_sdk::commitment_config::CommitmentLevel::Confirmed,
+        );
+        let message_2 = ChannelMessage::Account(
+            AccountData {
+                pubkey: Pubkey::new_unique(),
+                account: Account {
+                    lamports: 12345,
+                    data: (0..100).map(|_| rand::random::<u8>()).collect_vec(),
+                    owner: Pubkey::new_unique(),
+                    executable: false,
+                    rent_epoch: u64::MAX,
+                },
+                write_version: 1,
+            },
+            5,
+            false,
+        );
+
+        let message_3 = ChannelMessage::Account(
+            AccountData {
+                pubkey: Pubkey::new_unique(),
+                account: Account {
+                    lamports: 23456,
+                    data: (0..10_000).map(|_| rand::random::<u8>()).collect_vec(),
+                    owner: Pubkey::new_unique(),
+                    executable: false,
+                    rent_epoch: u64::MAX,
+                },
+                write_version: 1,
+            },
+            5,
+            false,
+        );
+
+        let message_4 = ChannelMessage::Account(
+            AccountData {
+                pubkey: Pubkey::new_unique(),
+                account: Account {
+                    lamports: 34567,
+                    data: (0..1_000_000).map(|_| rand::random::<u8>()).collect_vec(),
+                    owner: Pubkey::new_unique(),
+                    executable: false,
+                    rent_epoch: u64::MAX,
+                },
+                write_version: 1,
+            },
+            5,
+            false,
+        );
+
+        let message_5 = ChannelMessage::Account(
+            AccountData {
+                pubkey: Pubkey::new_unique(),
+                account: Account {
+                    lamports: 45678,
+                    data: (0..10_000_000).map(|_| rand::random::<u8>()).collect_vec(),
+                    owner: Pubkey::new_unique(),
+                    executable: false,
+                    rent_epoch: u64::MAX,
+                },
+                write_version: 1,
+            },
+            5,
+            false,
+        );
+
+        // server loop
+        let (server_send_queue, rx_sent_queue) = mio_channel::channel::<ChannelMessage>();
+        let _server_loop_jh = std::thread::spawn(move || {
+            let config = configure_server(100, 20_000_000, 1).unwrap();
+            if let Err(e) = server_loop(
+                config,
+                socket_addr,
+                rx_sent_queue,
+                CompressionType::Lz4Fast(8),
+            ) {
+                println!("Server loop closed by error : {e}");
+            }
         });
-        let message_2 = Message::AccountMsg(account);
-        let message_3 = Message::SlotMsg(SlotMeta {
-            slot: 4,
-            parent: 3,
-            commitment_level: solana_sdk::commitment_config::CommitmentLevel::Processed,
-        });
 
-        let jh = {
-            let message_1 = message_1.clone();
-            let message_2 = message_2.clone();
-            let message_3 = message_3.clone();
-            let server_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-            let (sx_sent_queue, rx_sent_queue) = mio_channel::channel();
-            let (sx_recv_queue, rx_recv_queue) = mpsc::channel();
-            std::thread::spawn(move || {
-                let jh = std::thread::spawn(move || {
-                    let client_config = configure_client(1, 12_000_000, 10).unwrap();
-                    let socket_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
-                    if let Err(e) = client_loop(
-                        client_config,
-                        socket_addr,
-                        server_addr,
-                        rx_sent_queue,
-                        sx_recv_queue,
-                    ) {
-                        println!("client stopped with error {e}");
-                    }
-                });
-                sx_sent_queue.send(message_1).unwrap();
-                let rx_message = rx_recv_queue.recv().unwrap();
-                assert_eq!(rx_message, message_2);
-                println!("verified second message");
-                sx_sent_queue.send(message_3).unwrap();
-                let rx_message = rx_recv_queue.recv().unwrap();
-                assert_eq!(rx_message, message_2);
-                println!("verified fourth message");
-                jh.join().unwrap();
+        // client loop
+        let server_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+        let (client_sx_queue, rx_sent_queue) = mio_channel::channel();
+        let (sx_recv_queue, client_rx_queue) = mpsc::channel();
+
+        let _client_loop_jh = std::thread::spawn(move || {
+            let client_config = configure_client(100, 20_000_000, 1).unwrap();
+            let socket_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+            if let Err(e) = client_loop(
+                client_config,
+                socket_addr,
+                server_addr,
+                rx_sent_queue,
+                sx_recv_queue,
+            ) {
+                println!("client stopped with error {e}");
+            }
+        });
+        client_sx_queue
+            .send(Message::Filters(vec![
+                Filter::AccountsAll,
+                Filter::TransactionsAll,
+                Filter::Slot,
+            ]))
+            .unwrap();
+        sleep(Duration::from_millis(100));
+        server_send_queue.send(message_1.clone()).unwrap();
+        server_send_queue.send(message_2.clone()).unwrap();
+        server_send_queue.send(message_3.clone()).unwrap();
+        sleep(Duration::from_millis(100));
+        server_send_queue.send(message_4.clone()).unwrap();
+        server_send_queue.send(message_5.clone()).unwrap();
+        sleep(Duration::from_millis(100));
+
+        let message_rx_1 = client_rx_queue.recv().unwrap();
+        assert_eq!(
+            message_rx_1,
+            Message::SlotMsg(SlotMeta {
+                slot: 3,
+                parent: 2,
+                commitment_level: solana_sdk::commitment_config::CommitmentLevel::Confirmed
             })
+        );
+
+        let message_rx_2 = client_rx_queue.recv().unwrap();
+
+        let ChannelMessage::Account(account, slot, _) = &message_2 else {
+            panic!("message should be account");
         };
+        let Message::AccountMsg(message_rx_2) = message_rx_2 else {
+            panic!("message should be account");
+        };
+        let message_account = message_rx_2.solana_account();
+        assert_eq!(account.pubkey, message_rx_2.pubkey);
+        assert_eq!(account.account, message_account);
+        assert_eq!(message_rx_2.slot_identifier.slot, *slot);
 
-        loop {
-            let mut buf = [0; 65535];
-            let mut out = [0; MAX_DATAGRAM_SIZE];
+        let message_rx_3 = client_rx_queue.recv().unwrap();
 
-            let (len, from) = match socket.recv_from(&mut buf) {
-                Ok(v) => v,
-                Err(e) => {
-                    panic!("recv() failed: {:?}", e);
-                }
-            };
-            println!("recieved first packet");
+        let ChannelMessage::Account(account, slot, _) = &message_3 else {
+            panic!("message should be account");
+        };
+        let Message::AccountMsg(message_rx_3) = message_rx_3 else {
+            panic!("message should be account");
+        };
+        let message_account = message_rx_3.solana_account();
+        assert_eq!(account.pubkey, message_rx_3.pubkey);
+        assert_eq!(account.account, message_account);
+        assert_eq!(message_rx_3.slot_identifier.slot, *slot);
 
-            log::debug!("got {} bytes", len);
+        let message_rx_4 = client_rx_queue.recv().unwrap();
+        let ChannelMessage::Account(account, slot, _) = &message_4 else {
+            panic!("message should be account");
+        };
+        let Message::AccountMsg(message_rx_4) = message_rx_4 else {
+            panic!("message should be account");
+        };
+        let message_account = message_rx_4.solana_account();
+        assert_eq!(account.pubkey, message_rx_4.pubkey);
+        assert_eq!(account.account, message_account);
+        assert_eq!(message_rx_4.slot_identifier.slot, *slot);
 
-            let pkt_buf = &mut buf[..len];
-
-            // Parse the QUIC packet's header.
-            let hdr = match quiche::Header::from_slice(pkt_buf, quiche::MAX_CONN_ID_LEN) {
-                Ok(header) => header,
-
-                Err(e) => {
-                    panic!("Parsing packet header failed: {:?}", e);
-                }
-            };
-            let rng = SystemRandom::new();
-            let conn_id_seed = ring::hmac::Key::generate(ring::hmac::HMAC_SHA256, &rng).unwrap();
-            let conn_id = ring::hmac::sign(&conn_id_seed, &hdr.dcid);
-            let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
-            let conn_id: ConnectionId<'static> = conn_id.to_vec().into();
-
-            if hdr.ty != quiche::Type::Initial {
-                panic!("Packet is not Initial");
-            }
-
-            if !quiche::version_is_supported(hdr.version) {
-                log::warn!("Doing version negotiation");
-
-                let len = quiche::negotiate_version(&hdr.scid, &hdr.dcid, &mut out).unwrap();
-
-                let out = &out[..len];
-
-                if let Err(e) = socket.send_to(out, from) {
-                    panic!("send() failed: {:?}", e);
-                }
-            }
-
-            let mut scid = [0; quiche::MAX_CONN_ID_LEN];
-            scid.copy_from_slice(&conn_id);
-
-            let scid = quiche::ConnectionId::from_ref(&scid);
-
-            // Token is always present in Initial packets.
-            let token = hdr.token.as_ref().unwrap();
-
-            println!("token: {}", token.iter().map(|x| x.to_string()).join(", "));
-
-            // Do stateless retry if the client didn't send a token.
-            if token.is_empty() {
-                log::warn!("Doing stateless retry");
-
-                let new_token = mint_token(&hdr, &from);
-
-                let len = quiche::retry(
-                    &hdr.scid,
-                    &hdr.dcid,
-                    &scid,
-                    &new_token,
-                    hdr.version,
-                    &mut out,
-                )
-                .unwrap();
-
-                let out = &out[..len];
-
-                if let Err(e) = socket.send_to(out, from) {
-                    panic!("send() failed: {:?}", e);
-                } else {
-                    continue;
-                }
-            }
-            let odcid = validate_token(&from, token);
-            // The token was not valid, meaning the retry failed, so
-            // drop the packet.
-            if odcid.is_none() {
-                panic!("Invalid address validation token");
-            }
-
-            if scid.len() != hdr.dcid.len() {
-                panic!("Invalid destination connection ID");
-            }
-
-            // Reuse the source connection ID we sent in the Retry packet,
-            // instead of changing it again.
-            let scid = hdr.dcid.clone();
-
-            log::debug!("New connection: dcid={:?} scid={:?}", hdr.dcid, scid);
-
-            let mut conn =
-                quiche::accept(&scid, odcid.as_ref(), local_addr, from, &mut config).unwrap();
-
-            let r_m = recv_message(&mut conn, 1).unwrap();
-            assert_eq!(r_m, message_1);
-            println!("verified first message");
-
-            send_message(&mut conn, 1, &message_2).unwrap();
-
-            let r_m = recv_message(&mut conn, 2).unwrap();
-            assert_eq!(r_m, message_3);
-            println!("verified third message");
-
-            send_message(&mut conn, 2, &message_2).unwrap();
-            conn.close(true, 0, b"not required").unwrap();
-            jh.join().unwrap();
-            break;
-        }
+        let message_rx_5 = client_rx_queue.recv().unwrap();
+        let ChannelMessage::Account(account, slot, _) = &message_5 else {
+            panic!("message should be account");
+        };
+        let Message::AccountMsg(message_rx_5) = message_rx_5 else {
+            panic!("message should be account");
+        };
+        let message_account = message_rx_5.solana_account();
+        assert_eq!(account.pubkey, message_rx_5.pubkey);
+        assert_eq!(account.account, message_account);
+        assert_eq!(message_rx_5.slot_identifier.slot, *slot);
     }
 }
