@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 pub fn validate_token<'a>(
     src: &std::net::SocketAddr,
     token: &'a [u8],
@@ -65,3 +67,10 @@ pub fn get_next_unidi(current_stream_id: u64, is_server: bool) -> u64 {
     }
     panic!("stream not found");
 }
+
+pub struct PartialResponse {
+    pub binary: Vec<u8>,
+    pub written: usize,
+}
+
+pub type PartialResponses = BTreeMap<u64, PartialResponse>;

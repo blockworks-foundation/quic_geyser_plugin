@@ -2,7 +2,7 @@ use std::{collections::HashMap, net::SocketAddr};
 
 use itertools::Itertools;
 use mio::net::UdpSocket;
-use quiche::ConnectionId;
+use quiche::{Connection, ConnectionId};
 use ring::rand::SystemRandom;
 
 use crate::{
@@ -12,21 +12,21 @@ use crate::{
     message::Message,
     quic::{
         quiche_reciever::recv_message,
+        quiche_sender::{handle_writable, send_message},
         quiche_utils::{get_next_unidi, mint_token, validate_token},
     },
     types::{account::Account, block_meta::SlotMeta, slot_identifier::SlotIdentifier},
 };
 
-use super::{configure_server::MAX_DATAGRAM_SIZE, quiche_sender::convert_to_binary};
-
-struct PartialResponse {
-    pub binary: Vec<u8>,
-    pub written: usize,
-}
+use super::{
+    configure_server::MAX_DATAGRAM_SIZE, quiche_reciever::ReadStreams,
+    quiche_utils::PartialResponses,
+};
 
 struct Client {
-    pub conn: quiche::Connection,
-    pub partial_responses: HashMap<u64, PartialResponse>,
+    pub conn: Connection,
+    pub partial_responses: PartialResponses,
+    pub read_streams: ReadStreams,
     pub filters: Vec<Filter>,
     pub next_stream: u64,
 }
@@ -191,7 +191,8 @@ pub fn server_loop(
 
                     let client = Client {
                         conn,
-                        partial_responses: HashMap::new(),
+                        partial_responses: PartialResponses::new(),
+                        read_streams: ReadStreams::new(),
                         filters: Vec::new(),
                         next_stream: get_next_unidi(0, true),
                     };
@@ -226,14 +227,15 @@ pub fn server_loop(
 
                 if client.conn.is_in_early_data() || client.conn.is_established() {
                     for stream_id in client.conn.writable() {
-                        handle_writable(client, stream_id);
+                        handle_writable(&mut client.conn, &mut client.partial_responses, stream_id);
                     }
 
                     // Process all readable streams.
                     for stream in client.conn.readable() {
-                        let message = recv_message(&mut client.conn, stream);
+                        let message =
+                            recv_message(&mut client.conn, &mut client.read_streams, stream);
                         match message {
-                            Ok(message) => {
+                            Ok(Some(message)) => {
                                 match message {
                                     Message::Filters(mut filters) => {
                                         client.filters.append(&mut filters);
@@ -246,6 +248,7 @@ pub fn server_loop(
                                     }
                                 }
                             }
+                            Ok(None) => {}
                             Err(e) => {
                                 log::error!("Error recieving message : {e}")
                             }
@@ -292,7 +295,7 @@ pub fn server_loop(
                                 Message::TransactionMsg(transaction)
                             }
                         };
-                        let binary = convert_to_binary(&message)
+                        let binary = bincode::serialize(&message)
                             .expect("Message should be serializable in binary");
                         for client in dispatch_to {
                             let stream_id = client.next_stream;
@@ -302,28 +305,13 @@ pub fn server_loop(
                                 binary.len(),
                                 stream_id
                             );
-                            let written = match client.conn.stream_send(stream_id, &binary, true) {
-                                Ok(v) => v,
-
-                                Err(quiche::Error::Done) => 0,
-
-                                Err(e) => {
-                                    log::error!(
-                                        "{} stream send failed {:?}",
-                                        client.conn.trace_id(),
-                                        e
-                                    );
-                                    continue;
-                                }
-                            };
-                            log::debug!("dispatched {} on stream id : {}", written, stream_id);
-
-                            if written < binary.len() {
-                                let response = PartialResponse {
-                                    binary: binary[written..].to_vec(),
-                                    written,
-                                };
-                                client.partial_responses.insert(stream_id, response);
+                            if let Err(e) = send_message(
+                                &mut client.conn,
+                                &mut client.partial_responses,
+                                stream_id,
+                                &binary,
+                            ) {
+                                log::error!("Error sending message : {e}");
                             }
                         }
                     }
@@ -379,41 +367,5 @@ pub fn server_loop(
                 !c.conn.is_closed()
             });
         }
-    }
-}
-
-/// Handles newly writable streams.
-fn handle_writable(client: &mut Client, stream_id: u64) {
-    let conn = &mut client.conn;
-
-    log::debug!("{} stream {} is writable", conn.trace_id(), stream_id);
-
-    if !client.partial_responses.contains_key(&stream_id) {
-        return;
-    }
-
-    let resp = client
-        .partial_responses
-        .get_mut(&stream_id)
-        .expect("should have a stream id");
-    let body = &resp.binary;
-
-    let written = match conn.stream_send(stream_id, body, true) {
-        Ok(v) => v,
-
-        Err(quiche::Error::Done) => 0,
-
-        Err(e) => {
-            client.partial_responses.remove(&stream_id);
-
-            log::error!("{} stream send failed {:?}", conn.trace_id(), e);
-            return;
-        }
-    };
-    if resp.written == resp.binary.len() {
-        client.partial_responses.remove(&stream_id);
-    } else {
-        resp.binary = resp.binary[written..].to_vec();
-        resp.written += written;
     }
 }

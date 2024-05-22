@@ -3,8 +3,10 @@ use std::net::SocketAddr;
 use crate::{
     message::Message,
     quic::{
-        configure_server::MAX_DATAGRAM_SIZE, quiche_reciever::recv_message,
-        quiche_sender::send_message, quiche_utils::get_next_unidi,
+        configure_server::MAX_DATAGRAM_SIZE,
+        quiche_reciever::{recv_message, ReadStreams},
+        quiche_sender::{handle_writable, send_message},
+        quiche_utils::{get_next_unidi, PartialResponses},
     },
 };
 use anyhow::bail;
@@ -52,6 +54,8 @@ pub fn client_loop(
     let mut current_stream_id = 3;
     let mut buf = [0; 65535];
     let mut out = [0; MAX_DATAGRAM_SIZE];
+    let mut partial_responses = PartialResponses::new();
+    let mut read_streams = ReadStreams::new();
 
     'client: loop {
         poll.poll(&mut events, conn.timeout()).unwrap();
@@ -110,16 +114,23 @@ pub fn client_loop(
             }
 
             // io events
-            for stream in conn.readable() {
-                let message = recv_message(&mut conn, stream);
+            for stream_id in conn.readable() {
+                let message = recv_message(&mut conn, &mut read_streams, stream_id);
                 match message {
-                    Ok(message) => {
+                    Ok(Some(message)) => {
                         message_recv_queue.send(message).unwrap();
+                    }
+                    Ok(None) => {
+                        // do nothing
                     }
                     Err(e) => {
                         log::error!("Error recieving message : {e}")
                     }
                 }
+            }
+
+            for stream_id in conn.writable() {
+                handle_writable(&mut conn, &mut partial_responses, stream_id);
             }
         }
 
@@ -128,8 +139,15 @@ pub fn client_loop(
             // channel events
             if let Ok(message_to_send) = message_send_queue.try_recv() {
                 current_stream_id = get_next_unidi(current_stream_id, false);
-                if let Err(e) = send_message(&mut conn, current_stream_id, &message_to_send) {
-                    log::error!("Error sending message on stream : {}", e);
+                let binary =
+                    bincode::serialize(&message_to_send).expect("Message should be serializable");
+                if let Err(e) = send_message(
+                    &mut conn,
+                    &mut partial_responses,
+                    current_stream_id,
+                    &binary,
+                ) {
+                    log::error!("Sending failed with error {e:?}");
                 }
             }
         }
