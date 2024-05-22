@@ -159,7 +159,7 @@ mod tests {
         let (client, reciever) = Client::new(
             url,
             ConnectionParameters {
-                max_number_of_streams: 3,
+                max_number_of_streams: 10,
                 recieve_window_size: 1_000_000,
                 timeout_in_seconds: 10,
             },

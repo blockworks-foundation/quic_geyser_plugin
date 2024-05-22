@@ -308,6 +308,7 @@ mod tests {
                 socket_addr,
                 rx_sent_queue,
                 CompressionType::Lz4Fast(8),
+                true,
             ) {
                 println!("Server loop closed by error : {e}");
             }

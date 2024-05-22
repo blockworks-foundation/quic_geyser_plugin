@@ -29,7 +29,13 @@ impl QuicServer {
         let (data_channel_sender, data_channel_tx) = mio_channel::channel();
 
         let _server_loop_jh = std::thread::spawn(move || {
-            if let Err(e) = server_loop(server_config, socket, data_channel_tx, compression_type) {
+            if let Err(e) = server_loop(
+                server_config,
+                socket,
+                data_channel_tx,
+                compression_type,
+                true,
+            ) {
                 panic!("Server loop closed by error : {e}");
             }
         });

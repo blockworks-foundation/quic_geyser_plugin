@@ -38,6 +38,7 @@ pub fn server_loop(
     socket_addr: SocketAddr,
     mut message_send_queue: mio_channel::Receiver<ChannelMessage>,
     compression_type: CompressionType,
+    stop_laggy_client: bool,
 ) -> anyhow::Result<()> {
     let mut socket = UdpSocket::bind(socket_addr)?;
 
@@ -320,6 +321,15 @@ pub fn server_loop(
                                 &binary,
                             ) {
                                 log::error!("Error sending message : {e}");
+                                if stop_laggy_client {
+                                    log::info!(
+                                        "Stopping laggy client : {}",
+                                        client.conn.trace_id()
+                                    );
+                                    if let Err(e) = client.conn.close(true, 1, b"laggy client") {
+                                        log::error!("error closing client : {}", e);
+                                    }
+                                }
                             }
                         }
                     }
