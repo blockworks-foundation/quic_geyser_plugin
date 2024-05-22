@@ -39,6 +39,7 @@ impl Client {
                 rx_sent_queue,
                 sx_recv_queue,
                 is_connected_client.clone(),
+                connection_parameters.max_number_of_streams,
             ) {
                 log::error!("client stopped with error {e}");
             }

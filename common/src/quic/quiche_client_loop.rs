@@ -22,6 +22,7 @@ pub fn client_loop(
     mut message_send_queue: mio_channel::Receiver<Message>,
     message_recv_queue: std::sync::mpsc::Sender<Message>,
     is_connected: Arc<AtomicBool>,
+    maximum_streams: u64,
 ) -> anyhow::Result<()> {
     let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
     let mut poll = mio::Poll::new()?;
@@ -148,7 +149,7 @@ pub fn client_loop(
         if channel_updates && conn.is_established() {
             // channel events
             if let Ok(message_to_send) = message_send_queue.try_recv() {
-                current_stream_id = get_next_unidi(current_stream_id, false);
+                current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
                 let binary =
                     bincode::serialize(&message_to_send).expect("Message should be serializable");
                 if let Err(e) = send_message(
@@ -229,6 +230,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("0.0.0.0:10900").unwrap();
 
         let port = 10900;
+        let maximum_concurrent_streams = 100;
 
         let message_1 = ChannelMessage::Slot(
             3,
@@ -302,13 +304,14 @@ mod tests {
         // server loop
         let (server_send_queue, rx_sent_queue) = mio_channel::channel::<ChannelMessage>();
         let _server_loop_jh = std::thread::spawn(move || {
-            let config = configure_server(100, 20_000_000, 1).unwrap();
+            let config = configure_server(maximum_concurrent_streams, 20_000_000, 1).unwrap();
             if let Err(e) = server_loop(
                 config,
                 socket_addr,
                 rx_sent_queue,
                 CompressionType::Lz4Fast(8),
                 true,
+                maximum_concurrent_streams,
             ) {
                 println!("Server loop closed by error : {e}");
             }
@@ -320,7 +323,8 @@ mod tests {
         let (sx_recv_queue, client_rx_queue) = mpsc::channel();
 
         let _client_loop_jh = std::thread::spawn(move || {
-            let client_config = configure_client(100, 20_000_000, 1).unwrap();
+            let client_config =
+                configure_client(maximum_concurrent_streams, 20_000_000, 1).unwrap();
             let socket_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
             let is_connected = Arc::new(AtomicBool::new(false));
             if let Err(e) = client_loop(
@@ -330,6 +334,7 @@ mod tests {
                 rx_sent_queue,
                 sx_recv_queue,
                 is_connected,
+                maximum_concurrent_streams,
             ) {
                 println!("client stopped with error {e}");
             }

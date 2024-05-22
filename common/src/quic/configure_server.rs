@@ -4,7 +4,7 @@ pub const ALPN_GEYSER_PROTOCOL_ID: &[u8] = b"geyser";
 pub const MAX_DATAGRAM_SIZE: usize = 1350;
 
 pub fn configure_server(
-    max_concurrent_streams: u32,
+    max_concurrent_streams: u64,
     recieve_window_size: u64,
     connection_timeout: u64,
 ) -> anyhow::Result<quiche::Config> {
@@ -33,8 +33,8 @@ pub fn configure_server(
     config.set_initial_max_stream_data_bidi_local(recieve_window_size);
     config.set_initial_max_stream_data_bidi_remote(recieve_window_size);
     config.set_initial_max_stream_data_uni(recieve_window_size);
-    config.set_initial_max_streams_bidi(max_concurrent_streams as u64);
-    config.set_initial_max_streams_uni(max_concurrent_streams as u64);
+    config.set_initial_max_streams_bidi(max_concurrent_streams);
+    config.set_initial_max_streams_uni(max_concurrent_streams);
     config.set_disable_active_migration(true);
     config.enable_early_data();
     Ok(config)

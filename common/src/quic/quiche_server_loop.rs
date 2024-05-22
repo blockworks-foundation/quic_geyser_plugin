@@ -39,6 +39,7 @@ pub fn server_loop(
     mut message_send_queue: mio_channel::Receiver<ChannelMessage>,
     compression_type: CompressionType,
     stop_laggy_client: bool,
+    maximum_concurrent_streams: u64,
 ) -> anyhow::Result<()> {
     let mut socket = UdpSocket::bind(socket_addr)?;
 
@@ -195,7 +196,7 @@ pub fn server_loop(
                         partial_responses: PartialResponses::new(),
                         read_streams: ReadStreams::new(),
                         filters: Vec::new(),
-                        next_stream: get_next_unidi(0, true),
+                        next_stream: get_next_unidi(0, true, maximum_concurrent_streams),
                     };
                     clients.insert(scid.clone(), client);
                     clients
@@ -308,7 +309,8 @@ pub fn server_loop(
                                     );
                                 }
                             }
-                            client.next_stream = get_next_unidi(stream_id, true);
+                            client.next_stream =
+                                get_next_unidi(stream_id, true, maximum_concurrent_streams);
                             log::debug!(
                                 "dispatching {} on stream id : {}",
                                 binary.len(),

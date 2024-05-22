@@ -5,7 +5,7 @@ use crate::quic::configure_client::{DEFAULT_MAX_RECIEVE_WINDOW_SIZE, DEFAULT_MAX
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ConnectionParameters {
-    pub max_number_of_streams: u32,
+    pub max_number_of_streams: u64,
     pub recieve_window_size: u64,
     pub timeout_in_seconds: u64,
 }

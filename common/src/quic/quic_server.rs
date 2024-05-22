@@ -35,6 +35,7 @@ impl QuicServer {
                 data_channel_tx,
                 compression_type,
                 true,
+                config.quic_parameters.max_number_of_streams_per_client,
             ) {
                 panic!("Server loop closed by error : {e}");
             }

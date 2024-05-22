@@ -35,7 +35,7 @@ impl ConfigQuicPlugin {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuicParameters {
-    pub max_number_of_streams_per_client: u32,
+    pub max_number_of_streams_per_client: u64,
     pub recieve_window_size: u64,
     pub connection_timeout: u64,
 }
