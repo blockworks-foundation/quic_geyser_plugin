@@ -168,9 +168,8 @@ pub fn client_loop(
 
                 Err(e) => {
                     log::error!("send failed: {:?}", e);
-
                     conn.close(false, 0x1, b"fail").ok();
-                    bail!("writing failed");
+                    break;
                 }
             };
 

@@ -69,9 +69,15 @@ pub fn handle_writable(
             return;
         }
     };
-    if resp.written == resp.binary.len() {
+
+    if written == 0 {
+        return;
+    }
+
+    if written == resp.binary.len() {
+        log::debug!("fin writing stream : {}", stream_id);
         partial_responses.remove(&stream_id);
-        match conn.stream_send(stream_id, &[], true) {
+        match conn.stream_send(stream_id, b"", true) {
             Ok(_) => {}
             Err(quiche::Error::Done) => {}
             Err(e) => {
