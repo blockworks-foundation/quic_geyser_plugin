@@ -31,9 +31,8 @@ struct Client {
     pub next_stream: u64,
 }
 
-const NETWORK_READ: Token = Token(0);
-const NETWORK_WRITE: Token = Token(1);
-const CHANNEL_READ: Token = Token(2);
+const NETWORK_TOKEN: Token = Token(0);
+const CHANNEL_TOKEN: Token = Token(1);
 
 type ClientMap = HashMap<quiche::ConnectionId<'static>, Client>;
 
@@ -55,19 +54,13 @@ pub fn server_loop(
 
     poll.registry().register(
         &mut socket,
-        NETWORK_READ,
-        mio::Interest::READABLE | mio::Interest::WRITABLE,
-    )?;
-
-    poll.registry().register(
-        &mut socket,
-        NETWORK_WRITE,
+        NETWORK_TOKEN,
         mio::Interest::READABLE | mio::Interest::WRITABLE,
     )?;
 
     poll.registry().register(
         &mut message_send_queue,
-        CHANNEL_READ,
+        CHANNEL_TOKEN,
         mio::Interest::READABLE,
     )?;
 
@@ -81,9 +74,13 @@ pub fn server_loop(
 
         poll.poll(&mut events, timeout).unwrap();
 
-        let network_read = events.iter().any(|x| x.token() == NETWORK_READ);
-        let network_write = events.iter().any(|x| x.token() == NETWORK_WRITE);
-        let channel_updates = events.iter().any(|x| x.token() == CHANNEL_READ);
+        let network_read = events
+            .iter()
+            .any(|x| x.token() == NETWORK_TOKEN && x.is_readable());
+        let network_write = events
+            .iter()
+            .any(|x| x.token() == NETWORK_TOKEN && x.is_writable());
+        let channel_updates = events.iter().any(|x| x.token() == CHANNEL_TOKEN);
 
         if events.is_empty() {
             log::debug!("connection timed out");
