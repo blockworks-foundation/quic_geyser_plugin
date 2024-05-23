@@ -1,7 +1,7 @@
 use boring::ssl::SslMethod;
 
 pub const ALPN_GEYSER_PROTOCOL_ID: &[u8] = b"geyser";
-pub const MAX_DATAGRAM_SIZE: usize = 1350;
+pub const MAX_DATAGRAM_SIZE: usize = 65527;
 
 pub fn configure_server(
     max_concurrent_streams: u64,

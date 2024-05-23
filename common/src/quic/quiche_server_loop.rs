@@ -309,6 +309,7 @@ pub fn server_loop(
                                     );
                                 }
                             }
+
                             client.next_stream =
                                 get_next_unidi(stream_id, true, maximum_concurrent_streams);
                             log::debug!(

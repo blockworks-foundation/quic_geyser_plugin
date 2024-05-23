@@ -63,19 +63,8 @@ pub fn client_loop(
     let mut read_streams = ReadStreams::new();
     let mut connected = false;
 
-    'client: loop {
+    loop {
         poll.poll(&mut events, conn.timeout()).unwrap();
-        if events.is_empty() {
-            log::debug!("connection timed out");
-            conn.on_timeout();
-            bail!("connection timed out");
-        }
-
-        if conn.is_closed() {
-            log::info!("connection closed, {:?}", conn.stats());
-            break;
-        }
-
         let network_updates = true;
         let channel_updates = true;
 
@@ -85,7 +74,7 @@ pub fn client_loop(
                     log::debug!("timed out");
 
                     conn.on_timeout();
-                    break 'client;
+                    break 'read;
                 }
 
                 let (len, from) = match socket.recv_from(&mut buf) {
@@ -124,7 +113,10 @@ pub fn client_loop(
                 let message = recv_message(&mut conn, &mut read_streams, stream_id);
                 match message {
                     Ok(Some(message)) => {
-                        message_recv_queue.send(message).unwrap();
+                        if let Err(e) = message_recv_queue.send(message) {
+                            log::error!("Error sending message on the channel : {e}");
+                            println!("Error sending message on the channel : {e}");
+                        }
                     }
                     Ok(None) => {
                         // do nothing
@@ -191,6 +183,13 @@ pub fn client_loop(
                 bail!("send fail");
             }
             log::debug!("written {}", write);
+        }
+
+        if conn.is_closed() {
+            is_connected.store(false, std::sync::atomic::Ordering::Relaxed);
+            log::info!("connection closed, {:?}", conn.stats());
+            println!("Connection closed {:?}", conn.stats());
+            break;
         }
     }
     Ok(())

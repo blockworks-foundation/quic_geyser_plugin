@@ -42,6 +42,7 @@ impl Client {
                 connection_parameters.max_number_of_streams,
             ) {
                 log::error!("client stopped with error {e}");
+                println!("client stopped with error {e}");
             }
             is_connected_client.store(false, std::sync::atomic::Ordering::Relaxed);
         });

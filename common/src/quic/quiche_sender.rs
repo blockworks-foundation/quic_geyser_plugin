@@ -17,9 +17,7 @@ pub fn send_message(
 ) -> anyhow::Result<()> {
     let written = match connection.stream_send(stream_id, message, true) {
         Ok(v) => v,
-
         Err(quiche::Error::Done) => 0,
-
         Err(e) => {
             bail!("{} stream send failed {:?}", stream_id, e);
         }
