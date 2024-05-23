@@ -59,11 +59,9 @@ pub fn handle_writable(
         .expect("should have a stream id");
     let body = &resp.binary;
 
-    let written = match conn.stream_send(stream_id, body, true) {
+    let written = match conn.stream_send(stream_id, body, false) {
         Ok(v) => v,
-
         Err(quiche::Error::Done) => 0,
-
         Err(e) => {
             partial_responses.remove(&stream_id);
 
@@ -73,6 +71,13 @@ pub fn handle_writable(
     };
     if resp.written == resp.binary.len() {
         partial_responses.remove(&stream_id);
+        match conn.stream_send(stream_id, &[], true) {
+            Ok(_) => {}
+            Err(quiche::Error::Done) => {}
+            Err(e) => {
+                log::error!("{} fin stream failed {:?}", conn.trace_id(), e);
+            }
+        }
     } else {
         resp.binary = resp.binary[written..].to_vec();
         resp.written += written;
