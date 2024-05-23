@@ -6,4 +6,3 @@ pub mod quiche_reciever;
 pub mod quiche_sender;
 pub mod quiche_server_loop;
 pub mod quiche_utils;
-pub mod skip_verification;

@@ -15,7 +15,7 @@ pub fn send_message(
     stream_id: u64,
     message: &Vec<u8>,
 ) -> anyhow::Result<()> {
-    let written = match connection.stream_send(stream_id, message, true) {
+    let written = match connection.stream_send(stream_id, message, false) {
         Ok(v) => v,
         Err(quiche::Error::Done) => 0,
         Err(e) => {
@@ -30,6 +30,14 @@ pub fn send_message(
             written,
         };
         partial_responses.insert(stream_id, response);
+    } else {
+        match connection.stream_send(stream_id, &[], true) {
+            Ok(_) => {}
+            Err(quiche::Error::Done) => {}
+            Err(e) => {
+                bail!("{} stream send failed {:?}", stream_id, e);
+            }
+        }
     }
     Ok(())
 }
