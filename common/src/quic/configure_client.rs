@@ -3,7 +3,7 @@ use crate::quic::configure_server::ALPN_GEYSER_PROTOCOL_ID;
 use super::configure_server::MAX_DATAGRAM_SIZE;
 
 pub const DEFAULT_MAX_STREAMS: u64 = 64 * 1024;
-pub const DEFAULT_MAX_RECIEVE_WINDOW_SIZE: u64 = 64_000_000; // 64 MBs
+pub const DEFAULT_MAX_RECIEVE_WINDOW_SIZE: u64 = 1_000_000; // 64 MBs
 
 pub fn configure_client(
     maximum_concurrent_streams: u64,
@@ -25,5 +25,6 @@ pub fn configure_client(
     config.set_initial_max_streams_bidi(maximum_concurrent_streams);
     config.set_initial_max_streams_uni(maximum_concurrent_streams);
     config.set_disable_active_migration(true);
+    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
     Ok(config)
 }

@@ -30,12 +30,13 @@ pub fn configure_server(
     config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_max_send_udp_payload_size(MAX_DATAGRAM_SIZE);
     config.set_initial_max_data(recieve_window_size);
-    config.set_initial_max_stream_data_bidi_local(recieve_window_size);
-    config.set_initial_max_stream_data_bidi_remote(recieve_window_size);
+    config.set_initial_max_stream_data_bidi_local(2048);
+    config.set_initial_max_stream_data_bidi_remote(2048);
     config.set_initial_max_stream_data_uni(recieve_window_size);
     config.set_initial_max_streams_bidi(max_concurrent_streams);
     config.set_initial_max_streams_uni(max_concurrent_streams);
     config.set_disable_active_migration(true);
     config.enable_early_data();
+    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
     Ok(config)
 }
