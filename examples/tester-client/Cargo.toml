@@ -20,4 +20,3 @@ tracing-subscriber = { workspace = true }
 
 quic-geyser-client = { workspace = true }
 quic-geyser-common = { workspace = true }
-quic-geyser-plugin = { workspace = true }

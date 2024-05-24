@@ -147,7 +147,7 @@ mod tests {
                 write_version: 0,
             },
             0,
-            false,
+            vec![2, 3, 4, 6],
         );
 
         let msg_2 = ChannelMessage::Account(
@@ -157,7 +157,7 @@ mod tests {
                 write_version: 0,
             },
             0,
-            false,
+            vec![2, 3, 4, 6],
         );
 
         let msg_3 = ChannelMessage::Account(
@@ -167,7 +167,7 @@ mod tests {
                 write_version: 0,
             },
             0,
-            false,
+            vec![2, 3, 4, 6],
         );
 
         let f1 = AccountFilter {

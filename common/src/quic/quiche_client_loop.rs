@@ -1,6 +1,7 @@
 use std::{
     net::SocketAddr,
     sync::{atomic::AtomicBool, Arc},
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -45,7 +46,7 @@ pub fn client_loop(
     log::info!("connecing client with quiche");
 
     let scid = quiche::ConnectionId::from_ref(&scid);
-    let local_addr = socket.local_addr().unwrap();
+    let local_addr = socket.local_addr()?;
 
     let mut conn = quiche::connect(None, &scid, local_addr, server_address, &mut config)?;
 
@@ -62,17 +63,17 @@ pub fn client_loop(
     let mut partial_responses = PartialResponses::new();
     let mut read_streams = ReadStreams::new();
     let mut connected = false;
+    let mut instance = Instant::now();
+    let ping_binary = bincode::serialize(&Message::Ping)?;
 
     loop {
-        poll.poll(&mut events, conn.timeout()).unwrap();
+        poll.poll(&mut events, conn.timeout())?;
         let network_updates = true;
         let channel_updates = true;
 
         if network_updates {
             'read: loop {
                 if events.is_empty() {
-                    log::debug!("timed out");
-
                     conn.on_timeout();
                     break 'read;
                 }
@@ -81,57 +82,45 @@ pub fn client_loop(
                     Ok(v) => v,
                     Err(e) => {
                         if e.kind() == std::io::ErrorKind::WouldBlock {
-                            log::debug!("recv() would block");
                             break 'read;
                         }
-                        panic!("recv() failed: {:?}", e);
+                        bail!("recv() failed: {:?}", e);
                     }
                 };
 
-                log::debug!("got {} bytes", len);
-
                 let recv_info = quiche::RecvInfo {
-                    to: socket.local_addr().unwrap(),
+                    to: socket.local_addr()?,
                     from,
                 };
 
                 // Process potentially coalesced packets.
-                let read = match conn.recv(&mut buf[..len], recv_info) {
-                    Ok(v) => v,
-
-                    Err(e) => {
-                        log::error!("recv failed: {:?}", e);
-                        continue 'read;
-                    }
+                if let Err(e) = conn.recv(&mut buf[..len], recv_info) {
+                    log::error!("recv failed: {:?}", e);
+                    continue 'read;
                 };
-
-                log::debug!("processed {} bytes", read);
             }
-
-            // io events
-            for stream_id in conn.readable() {
-                let message = recv_message(&mut conn, &mut read_streams, stream_id);
-                match message {
-                    Ok(Some(message)) => {
-                        if let Err(e) = message_recv_queue.send(message) {
-                            log::error!("Error sending message on the channel : {e}");
-                            println!("Error sending message on the channel : {e}");
-                        }
-                    }
-                    Ok(None) => {
-                        // do nothing
-                    }
-                    Err(e) => {
-                        log::error!("Error recieving message : {e}")
+        }
+        // io events
+        for stream_id in conn.readable() {
+            let message = recv_message(&mut conn, &mut read_streams, stream_id);
+            match message {
+                Ok(Some(message)) => {
+                    if let Err(e) = message_recv_queue.send(message) {
+                        log::error!("Error sending message on the channel : {e}");
                     }
                 }
-            }
-
-            for stream_id in conn.writable() {
-                handle_writable(&mut conn, &mut partial_responses, stream_id);
+                Ok(None) => {
+                    // do nothing
+                }
+                Err(e) => {
+                    log::error!("Error recieving message : {e}")
+                }
             }
         }
 
+        for stream_id in conn.writable() {
+            handle_writable(&mut conn, &mut partial_responses, stream_id);
+        }
         if !connected && conn.is_established() {
             is_connected.store(true, std::sync::atomic::Ordering::Relaxed);
             connected = true;
@@ -139,6 +128,22 @@ pub fn client_loop(
 
         // chanel updates
         if channel_updates && conn.is_established() {
+            let current_instance = Instant::now();
+            // sending ping filled
+            if current_instance.duration_since(instance) > Duration::from_secs(5) {
+                log::debug!("sending ping to the server");
+                instance = current_instance;
+                current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
+                if let Err(e) = send_message(
+                    &mut conn,
+                    &mut partial_responses,
+                    current_stream_id,
+                    &ping_binary,
+                ) {
+                    log::error!("sending ping failed with error {e:?}");
+                }
+            }
+
             // channel events
             if let Ok(message_to_send) = message_send_queue.try_recv() {
                 current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
@@ -162,7 +167,6 @@ pub fn client_loop(
                 Ok(v) => v,
 
                 Err(quiche::Error::Done) => {
-                    log::debug!("done writing");
                     break;
                 }
 
@@ -173,21 +177,21 @@ pub fn client_loop(
                 }
             };
 
-            if let Err(e) = socket.send_to(&out[..write], send_info.to) {
-                if e.kind() == std::io::ErrorKind::WouldBlock {
-                    log::debug!("send() would block");
-                    break;
+            match socket.send_to(&out[..write], send_info.to) {
+                Ok(_len) => {}
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        log::debug!("send() would block");
+                        break;
+                    }
+                    log::error!("send() failed: {:?}", e);
                 }
-
-                bail!("send fail");
             }
-            log::debug!("written {}", write);
         }
 
         if conn.is_closed() {
             is_connected.store(false, std::sync::atomic::Ordering::Relaxed);
             log::info!("connection closed, {:?}", conn.stats());
-            println!("Connection closed {:?}", conn.stats());
             break;
         }
     }
@@ -248,7 +252,7 @@ mod tests {
                 write_version: 1,
             },
             5,
-            false,
+            vec![2, 3, 4, 6],
         );
 
         let message_3 = ChannelMessage::Account(
@@ -264,7 +268,7 @@ mod tests {
                 write_version: 1,
             },
             5,
-            false,
+            vec![2, 3, 4, 6],
         );
 
         let message_4 = ChannelMessage::Account(
@@ -280,7 +284,7 @@ mod tests {
                 write_version: 1,
             },
             5,
-            false,
+            vec![2, 3, 4, 6],
         );
 
         let message_5 = ChannelMessage::Account(
@@ -296,7 +300,7 @@ mod tests {
                 write_version: 1,
             },
             5,
-            false,
+            vec![2, 3, 4, 6],
         );
 
         // server loop

@@ -1,9 +1,6 @@
-use anyhow::bail;
-use quiche::Connection;
-
-use crate::{message::Message, quic::quiche_utils::PartialResponse};
-
 use super::quiche_utils::PartialResponses;
+use crate::{message::Message, quic::quiche_utils::PartialResponse};
+use quiche::Connection;
 
 pub fn convert_to_binary(message: &Message) -> anyhow::Result<Vec<u8>> {
     Ok(bincode::serialize(&message)?)
@@ -14,15 +11,15 @@ pub fn send_message(
     partial_responses: &mut PartialResponses,
     stream_id: u64,
     message: &Vec<u8>,
-) -> anyhow::Result<()> {
+) -> std::result::Result<(), quiche::Error> {
     let written = match connection.stream_send(stream_id, message, false) {
         Ok(v) => v,
         Err(quiche::Error::Done) => 0,
         Err(e) => {
-            bail!("{} stream send failed {:?}", stream_id, e);
+            return Err(e);
         }
     };
-    log::debug!("dispatched {} on stream id : {}", written, stream_id);
+    log::trace!("dispatched {} on stream id : {}", written, stream_id);
 
     if written < message.len() {
         let response = PartialResponse {
@@ -35,7 +32,7 @@ pub fn send_message(
             Ok(_) => {}
             Err(quiche::Error::Done) => {}
             Err(e) => {
-                bail!("{} stream send failed {:?}", stream_id, e);
+                return Err(e);
             }
         }
     }
@@ -48,7 +45,7 @@ pub fn handle_writable(
     partial_responses: &mut PartialResponses,
     stream_id: u64,
 ) {
-    log::debug!("{} stream {} is writable", conn.trace_id(), stream_id);
+    log::trace!("{} stream {} is writable", conn.trace_id(), stream_id);
 
     if !partial_responses.contains_key(&stream_id) {
         return;

@@ -46,7 +46,10 @@ pub fn main() {
         .map(|_| rand.gen::<u8>())
         .collect_vec();
     loop {
-        std::thread::sleep(Duration::from_secs(1) - Instant::now().duration_since(instant));
+        let diff = Instant::now().duration_since(instant);
+        if diff < Duration::from_secs(1) {
+            std::thread::sleep(diff);
+        }
         instant = Instant::now();
         slot += 1;
         for _ in 0..args.accounts_per_second {
@@ -62,7 +65,7 @@ pub fn main() {
                 },
                 write_version,
             };
-            let channel_message = ChannelMessage::Account(account, slot, false);
+            let channel_message = ChannelMessage::Account(account, slot, vec![8, 4, 7, 3]);
             quic_server.send_message(channel_message).unwrap();
         }
     }

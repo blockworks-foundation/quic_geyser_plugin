@@ -140,7 +140,7 @@ pub fn main() {
                     .fetch_add(message_size as u64, std::sync::atomic::Ordering::Relaxed);
                 match message {
                     quic_geyser_common::message::Message::AccountMsg(account) => {
-                        log::debug!("got account notification : {} ", account.pubkey);
+                        log::trace!("got account notification : {} ", account.pubkey);
                         account_notification.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let data_len = account.data_length as usize;
                         total_accounts_size
@@ -166,17 +166,17 @@ pub fn main() {
                         );
                     }
                     quic_geyser_common::message::Message::SlotMsg(slot) => {
-                        log::debug!("got slot notification : {} ", slot.slot);
+                        log::trace!("got slot notification : {} ", slot.slot);
                         slot_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         slot_slot.store(slot.slot, std::sync::atomic::Ordering::Relaxed);
                     }
                     quic_geyser_common::message::Message::BlockMetaMsg(block_meta) => {
-                        log::debug!("got blockmeta notification : {} ", block_meta.slot);
+                        log::trace!("got blockmeta notification : {} ", block_meta.slot);
                         blockmeta_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         blockmeta_slot.store(block_meta.slot, std::sync::atomic::Ordering::Relaxed);
                     }
                     quic_geyser_common::message::Message::TransactionMsg(tx) => {
-                        log::debug!(
+                        log::trace!(
                             "got transaction notification: {}",
                             tx.signatures[0].to_string()
                         );
@@ -185,6 +185,9 @@ pub fn main() {
                     }
                     quic_geyser_common::message::Message::Filters(_) => {
                         // Not supported
+                    }
+                    quic_geyser_common::message::Message::Ping => {
+                        // not supported ping
                     }
                 }
             }

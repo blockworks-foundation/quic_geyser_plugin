@@ -50,7 +50,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
         &self,
         account: ReplicaAccountInfoVersions,
         slot: Slot,
-        is_startup: bool,
+        _is_startup: bool,
     ) -> PluginResult<()> {
         let Some(quic_server) = &self.quic_server else {
             return Ok(());
@@ -68,6 +68,11 @@ impl GeyserPlugin for QuicGeyserPlugin {
             rent_epoch: account_info.rent_epoch,
         };
         let pubkey: Pubkey = Pubkey::try_from(account_info.pubkey).expect("valid pubkey");
+
+        let compressed_data = quic_server
+            .get_compression_type()
+            .compress(account_info.data);
+
         quic_server
             .send_message(ChannelMessage::Account(
                 AccountData {
@@ -76,7 +81,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
                     write_version: account_info.write_version,
                 },
                 slot,
-                is_startup,
+                compressed_data,
             ))
             .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
         Ok(())

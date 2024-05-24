@@ -1,5 +1,6 @@
 use std::{collections::HashMap, net::SocketAddr};
 
+use anyhow::bail;
 use itertools::Itertools;
 use mio::{net::UdpSocket, Token};
 use quiche::{Connection, ConnectionId};
@@ -52,11 +53,8 @@ pub fn server_loop(
     let mut poll = mio::Poll::new()?;
     let mut events = mio::Events::with_capacity(1024);
 
-    poll.registry().register(
-        &mut socket,
-        NETWORK_TOKEN,
-        mio::Interest::READABLE | mio::Interest::WRITABLE,
-    )?;
+    poll.registry()
+        .register(&mut socket, NETWORK_TOKEN, mio::Interest::READABLE)?;
 
     poll.registry().register(
         &mut message_send_queue,
@@ -71,16 +69,11 @@ pub fn server_loop(
 
     loop {
         let timeout = clients.values().filter_map(|c| c.conn.timeout()).min();
-        log::debug!("timeout : {}", timeout.unwrap_or_default().as_millis());
-
         poll.poll(&mut events, timeout).unwrap();
 
-        let network_read = events
-            .iter()
-            .any(|x| x.token() == NETWORK_TOKEN && x.is_readable());
+        let network_read = true;
 
         if events.is_empty() {
-            log::debug!("connection timed out");
             clients.values_mut().for_each(|c| c.conn.on_timeout());
             continue;
         }
@@ -91,14 +84,12 @@ pub fn server_loop(
                     Ok(v) => v,
                     Err(e) => {
                         if e.kind() == std::io::ErrorKind::WouldBlock {
-                            log::debug!("recv() would block");
+                            log::trace!("recv() would block");
                             break 'read;
                         }
-                        panic!("recv() failed: {:?}", e);
+                        bail!("recv() failed: {:?}", e);
                     }
                 };
-
-                log::debug!("got {} bytes", len);
 
                 let pkt_buf = &mut buf[..len];
 
@@ -111,8 +102,6 @@ pub fn server_loop(
                         continue 'read;
                     }
                 };
-
-                log::trace!("got packet {:?}", hdr);
 
                 let conn_id = ring::hmac::sign(&conn_id_seed, &hdr.dcid);
                 let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
@@ -133,7 +122,6 @@ pub fn server_loop(
 
                         if let Err(e) = socket.send_to(out, from) {
                             if e.kind() == std::io::ErrorKind::WouldBlock {
-                                log::debug!("send() would block");
                                 break;
                             }
                             panic!("send() failed: {:?}", e);
@@ -169,7 +157,6 @@ pub fn server_loop(
 
                         if let Err(e) = socket.send_to(out, from) {
                             if e.kind() == std::io::ErrorKind::WouldBlock {
-                                log::debug!("send() would block");
                                 break;
                             }
 
@@ -192,7 +179,7 @@ pub fn server_loop(
 
                     let scid = hdr.dcid.clone();
 
-                    log::debug!("New connection: dcid={:?} scid={:?}", hdr.dcid, scid);
+                    log::info!("New connection: dcid={:?} scid={:?}", hdr.dcid, scid);
 
                     let conn = quiche::accept(&scid, odcid.as_ref(), local_addr, from, &mut config)
                         .unwrap();
@@ -224,40 +211,22 @@ pub fn server_loop(
                 };
 
                 // Process potentially coalesced packets.
-                let read = match client.conn.recv(pkt_buf, recv_info) {
+                match client.conn.recv(pkt_buf, recv_info) {
                     Ok(v) => v,
                     Err(e) => {
                         log::error!("{} recv failed: {:?}", client.conn.trace_id(), e);
                         continue 'read;
                     }
                 };
-                log::debug!("{} processed {} bytes", client.conn.trace_id(), read);
-
-                if client.conn.is_in_early_data() || client.conn.is_established() {
-                    // Process all readable streams.
-                    for stream in client.conn.readable() {
-                        let message =
-                            recv_message(&mut client.conn, &mut client.read_streams, stream);
-                        match message {
-                            Ok(Some(message)) => match message {
-                                Message::Filters(mut filters) => {
-                                    client.filters.append(&mut filters);
-                                }
-                                _ => {
-                                    log::error!("unknown message from the client");
-                                }
-                            },
-                            Ok(None) => {}
-                            Err(e) => {
-                                log::error!("Error recieving message : {e}")
-                            }
-                        }
-                    }
-                }
             }
         }
 
-        while let Ok(message) = message_send_queue.try_recv() {
+        // dispatch hundreds of messages at a time
+        for _ in 0..100 {
+            let Ok(message) = message_send_queue.try_recv() else {
+                break;
+            };
+
             let dispatch_to = clients
                 .iter_mut()
                 .filter(|(_, client)| {
@@ -314,7 +283,7 @@ pub fn server_loop(
                             );
                         }
                     }
-                    log::debug!("dispatching {} on stream id : {}", binary.len(), stream_id);
+                    log::trace!("dispatching {} on stream id : {}", binary.len(), stream_id);
 
                     if let Err(e) = send_message(
                         &mut client.conn,
@@ -324,9 +293,16 @@ pub fn server_loop(
                     ) {
                         log::error!("Error sending message : {e}");
                         if stop_laggy_client {
-                            log::info!("Stopping laggy client : {}", client.conn.trace_id());
                             if let Err(e) = client.conn.close(true, 1, b"laggy client") {
-                                log::error!("error closing client : {}", e);
+                                if e != quiche::Error::Done {
+                                    log::error!("error closing client : {}", e);
+                                }
+                            } else {
+                                log::info!(
+                                    "Stopping laggy client : {} because of error : {}",
+                                    client.conn.trace_id(),
+                                    e
+                                );
                             }
                         }
                     }
@@ -338,6 +314,30 @@ pub fn server_loop(
         // them on the UDP socket, until quiche reports that there are no more
         // packets to be sent.
         for client in clients.values_mut() {
+            if client.conn.is_in_early_data() || client.conn.is_established() {
+                // Process all readable streams.
+                for stream in client.conn.readable() {
+                    let message = recv_message(&mut client.conn, &mut client.read_streams, stream);
+                    match message {
+                        Ok(Some(message)) => match message {
+                            Message::Filters(mut filters) => {
+                                client.filters.append(&mut filters);
+                            }
+                            Message::Ping => {
+                                // got ping
+                            }
+                            _ => {
+                                log::error!("unknown message from the client");
+                            }
+                        },
+                        Ok(None) => {}
+                        Err(e) => {
+                            log::error!("Error recieving message : {e}")
+                        }
+                    }
+                }
+            }
+
             for stream_id in client.conn.writable() {
                 handle_writable(&mut client.conn, &mut client.partial_responses, stream_id);
             }
@@ -346,7 +346,7 @@ pub fn server_loop(
                 let (write, send_info) = match client.conn.send(&mut out) {
                     Ok(v) => v,
                     Err(quiche::Error::Done) => {
-                        log::debug!("{} done writing", client.conn.trace_id());
+                        log::trace!("{} done writing", client.conn.trace_id());
                         break;
                     }
                     Err(e) => {
@@ -360,20 +360,22 @@ pub fn server_loop(
                     }
                 };
 
-                if let Err(e) = socket.send_to(&out[..write], send_info.to) {
-                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                        log::debug!("send() would block");
-                        break;
+                match socket.send_to(&out[..write], send_info.to) {
+                    Ok(_len) => {
+                        // log::debug!("wrote: {} bytes", len);
                     }
-                    log::error!("send() failed: {:?}", e);
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::WouldBlock {
+                            break;
+                        }
+                        log::error!("send() failed: {:?}", e);
+                    }
                 }
-
-                log::debug!("{} written {} bytes", client.conn.trace_id(), write);
             }
         }
 
         // Garbage collect closed connections.
-        clients.retain(|_, ref mut c| {
+        clients.retain(|_, c| {
             log::debug!("Collecting garbage");
 
             if c.conn.is_closed() {

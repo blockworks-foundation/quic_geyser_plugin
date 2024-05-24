@@ -20,4 +20,5 @@ pub enum Message {
     BlockMetaMsg(BlockMeta),
     TransactionMsg(Box<Transaction>),
     Filters(Vec<Filter>), // sent from client to server
+    Ping,
 }

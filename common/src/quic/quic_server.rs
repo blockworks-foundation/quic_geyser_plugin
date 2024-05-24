@@ -1,13 +1,14 @@
 use std::fmt::Debug;
 
 use crate::{
-    channel_message::ChannelMessage, config::ConfigQuicPlugin, plugin_error::QuicGeyserError,
-    quic::configure_server::configure_server,
+    channel_message::ChannelMessage, compression::CompressionType, config::ConfigQuicPlugin,
+    plugin_error::QuicGeyserError, quic::configure_server::configure_server,
 };
 
 use super::quiche_server_loop::server_loop;
 pub struct QuicServer {
     data_channel_sender: mio_channel::Sender<ChannelMessage>,
+    compression_type: CompressionType,
 }
 
 impl Debug for QuicServer {
@@ -43,6 +44,7 @@ impl QuicServer {
 
         Ok(QuicServer {
             data_channel_sender,
+            compression_type,
         })
     }
 
@@ -50,5 +52,9 @@ impl QuicServer {
         self.data_channel_sender
             .send(message)
             .map_err(|_| QuicGeyserError::MessageChannelClosed)
+    }
+
+    pub fn get_compression_type(&self) -> CompressionType {
+        self.compression_type
     }
 }

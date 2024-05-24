@@ -25,11 +25,16 @@ pub fn recv_message(
         let mut buf = [0; MAX_DATAGRAM_SIZE]; // 10kk buffer size
         match connection.stream_recv(stream_id, &mut buf) {
             Ok((read, fin)) => {
-                log::debug!("read {} on stream {}", read, stream_id);
+                log::trace!("read {} on stream {}", read, stream_id);
                 total_buf.extend_from_slice(&buf[..read]);
                 if fin {
-                    log::debug!("fin stream : {}", stream_id);
-                    return Ok(Some(bincode::deserialize::<Message>(&total_buf)?));
+                    log::trace!("fin stream : {}", stream_id);
+                    match bincode::deserialize::<Message>(&total_buf) {
+                        Ok(message) => return Ok(Some(message)),
+                        Err(e) => {
+                            bail!("Error deserializing stream {stream_id} error: {e:?}");
+                        }
+                    }
                 }
             }
             Err(e) => {

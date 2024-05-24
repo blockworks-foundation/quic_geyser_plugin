@@ -20,6 +20,4 @@ tracing-subscriber = { workspace = true }
 
 rand = "0.8.5"
 
-quic-geyser-client = { workspace = true }
 quic-geyser-common = { workspace = true }
-quic-geyser-plugin = { workspace = true }
