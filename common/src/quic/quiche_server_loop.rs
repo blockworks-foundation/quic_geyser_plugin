@@ -1,14 +1,15 @@
 use std::{
     collections::HashMap,
     net::SocketAddr,
-    sync::{mpsc, Arc, Mutex, RwLock},
-    thread::{self, sleep, JoinHandle},
-    time::Duration,
+    sync::{
+        mpsc::{self, Sender},
+        Arc, Mutex, RwLock,
+    },
 };
 
 use anyhow::bail;
 use itertools::Itertools;
-use quiche::{Connection, ConnectionId};
+use quiche::ConnectionId;
 use ring::rand::SystemRandom;
 
 use crate::{
@@ -29,15 +30,14 @@ use super::{
     quiche_utils::PartialResponses,
 };
 
-struct Client {
-    pub connection: Connection,
-    pub partial_responses: PartialResponses,
-    pub read_streams: ReadStreams,
-    pub next_stream: u64,
+struct DispatchingData {
+    pub sender: Sender<(Vec<u8>, u8)>,
+    pub filters: Arc<RwLock<Vec<Filter>>>,
 }
 
-type ClientMap = RwLock<HashMap<quiche::ConnectionId<'static>, Mutex<Client>>>;
-type FilterMap = RwLock<HashMap<quiche::ConnectionId<'static>, Vec<Filter>>>;
+type DispachingConnections = Arc<Mutex<HashMap<ConnectionId<'static>, DispatchingData>>>;
+
+const MAX_MESSAGE_DEPILE_IN_LOOP: usize = 1024;
 
 pub fn server_loop(
     mut config: quiche::Config,
@@ -56,325 +56,369 @@ pub fn server_loop(
     let local_addr = socket.local_addr()?;
     let rng = SystemRandom::new();
     let conn_id_seed = ring::hmac::Key::generate(ring::hmac::HMAC_SHA256, &rng).unwrap();
-    let clients = Arc::new(ClientMap::new(HashMap::new()));
-    let filter_map = Arc::new(FilterMap::new(HashMap::new()));
+    let mut clients: HashMap<
+        quiche::ConnectionId<'static>,
+        mpsc::Sender<(quiche::RecvInfo, Vec<u8>)>,
+    > = HashMap::new();
 
-    create_thread_to_dispatch_messages(
-        clients.clone(),
-        filter_map.clone(),
+    let (write_sender, write_reciver) = mpsc::channel::<(quiche::SendInfo, Vec<u8>)>();
+
+    let mut last_write: Option<(quiche::SendInfo, Vec<u8>)> = None;
+    let dispatching_connections: DispachingConnections = Arc::new(Mutex::new(HashMap::<
+        ConnectionId<'static>,
+        DispatchingData,
+    >::new()));
+
+    create_dispatching_thread(
         message_send_queue,
-        maximum_concurrent_streams,
+        dispatching_connections.clone(),
         compression_type,
-        stop_laggy_client,
     );
 
-    // thread to close connections
-    {
-        let clients = clients.clone();
-        let filter_map = filter_map.clone();
+    loop {
+        'read: loop {
+            let (len, from) = match socket.recv_from(&mut buf) {
+                Ok(v) => v,
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        log::trace!("recv() would block");
+                        break 'read;
+                    }
+                    bail!("recv() failed: {:?}", e);
+                }
+            };
 
-        std::thread::spawn(move || loop {
-            thread::sleep(Duration::from_secs(5));
-            let mut clients = clients.write().unwrap();
-            clients.retain(|id, client| {
-                let mut client = client.lock().unwrap();
-                client.connection.on_timeout();
-                if client.connection.is_closed() {
-                    filter_map.write().unwrap().remove(id);
-                    log::info!(
-                        "{} connection closed {:?}",
-                        client.connection.trace_id(),
-                        client.connection.stats()
-                    );
+            let pkt_buf = &mut buf[..len];
+
+            // Parse the QUIC packet's header.
+            let hdr = match quiche::Header::from_slice(pkt_buf, quiche::MAX_CONN_ID_LEN) {
+                Ok(v) => v,
+
+                Err(e) => {
+                    log::error!("Parsing packet header failed: {:?}", e);
+                    continue 'read;
+                }
+            };
+
+            let conn_id = ring::hmac::sign(&conn_id_seed, &hdr.dcid);
+            let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
+            let conn_id: ConnectionId<'static> = conn_id.to_vec().into();
+            if !clients.contains_key(&hdr.dcid) && !clients.contains_key(&conn_id) {
+                if hdr.ty != quiche::Type::Initial {
+                    log::error!("Packet is not Initial");
+                    continue 'read;
                 }
 
-                !client.connection.is_closed()
-            });
-        });
-    }
+                if !quiche::version_is_supported(hdr.version) {
+                    log::warn!("Doing version negotiation");
+                    let len = quiche::negotiate_version(&hdr.scid, &hdr.dcid, &mut out).unwrap();
 
-    let network_read = true;
-    let mut last_write: Option<(Vec<u8>, quiche::SendInfo)> = None;
-    loop {
-        if network_read {
-            'read: loop {
-                let (len, from) = match socket.recv_from(&mut buf) {
-                    Ok(v) => v,
-                    Err(e) => {
+                    let out = &out[..len];
+
+                    if let Err(e) = socket.send_to(out, from) {
                         if e.kind() == std::io::ErrorKind::WouldBlock {
-                            log::trace!("recv() would block");
-                            break 'read;
+                            break;
                         }
-                        bail!("recv() failed: {:?}", e);
+                        panic!("send() failed: {:?}", e);
                     }
+                    continue 'read;
+                }
+
+                let mut scid = [0; quiche::MAX_CONN_ID_LEN];
+                scid.copy_from_slice(&conn_id);
+
+                let scid = quiche::ConnectionId::from_ref(&scid);
+
+                // Token is always present in Initial packets.
+                let token = hdr.token.as_ref().unwrap();
+
+                // Do stateless retry if the client didn't send a token.
+                if token.is_empty() {
+                    log::debug!("Doing stateless retry");
+
+                    let new_token = mint_token(&hdr, &from);
+
+                    let len = quiche::retry(
+                        &hdr.scid,
+                        &hdr.dcid,
+                        &scid,
+                        &new_token,
+                        hdr.version,
+                        &mut out,
+                    )
+                    .unwrap();
+
+                    let out = &out[..len];
+
+                    if let Err(e) = socket.send_to(out, from) {
+                        if e.kind() == std::io::ErrorKind::WouldBlock {
+                            break;
+                        }
+
+                        panic!("send() failed: {:?}", e);
+                    }
+                    continue 'read;
+                }
+
+                let odcid = validate_token(&from, token);
+
+                if odcid.is_none() {
+                    log::error!("Invalid address validation token");
+                    continue 'read;
+                }
+
+                if scid.len() != hdr.dcid.len() {
+                    log::error!("Invalid destination connection ID");
+                    continue 'read;
+                }
+
+                let scid = hdr.dcid.clone();
+
+                log::info!("New connection: dcid={:?} scid={:?}", hdr.dcid, scid);
+
+                let mut conn =
+                    quiche::accept(&scid, odcid.as_ref(), local_addr, from, &mut config)?;
+
+                let recv_info = quiche::RecvInfo {
+                    to: socket.local_addr().unwrap(),
+                    from,
                 };
-
-                let pkt_buf = &mut buf[..len];
-
-                // Parse the QUIC packet's header.
-                let hdr = match quiche::Header::from_slice(pkt_buf, quiche::MAX_CONN_ID_LEN) {
+                // Process potentially coalesced packets.
+                match conn.recv(pkt_buf, recv_info) {
                     Ok(v) => v,
-
                     Err(e) => {
-                        log::error!("Parsing packet header failed: {:?}", e);
+                        log::error!("{} recv failed: {:?}", conn.trace_id(), e);
                         continue 'read;
                     }
                 };
 
-                let conn_id = ring::hmac::sign(&conn_id_seed, &hdr.dcid);
-                let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
-                let conn_id: ConnectionId<'static> = conn_id.to_vec().into();
-                let clients_rl = clients.read().unwrap();
-                if !clients_rl.contains_key(&hdr.dcid) && !clients_rl.contains_key(&conn_id) {
-                    drop(clients_rl);
-                    if hdr.ty != quiche::Type::Initial {
-                        log::error!("Packet is not Initial");
-                        continue 'read;
-                    }
+                let (client_sender, client_reciver) = mpsc::channel();
 
-                    if !quiche::version_is_supported(hdr.version) {
-                        log::warn!("Doing version negotiation");
-                        let len =
-                            quiche::negotiate_version(&hdr.scid, &hdr.dcid, &mut out).unwrap();
+                let (client_message_sx, client_message_rx) = mpsc::channel();
 
-                        let out = &out[..len];
-
-                        if let Err(e) = socket.send_to(out, from) {
-                            if e.kind() == std::io::ErrorKind::WouldBlock {
-                                break;
-                            }
-                            panic!("send() failed: {:?}", e);
-                        }
-                        continue 'read;
-                    }
-
-                    let mut scid = [0; quiche::MAX_CONN_ID_LEN];
-                    scid.copy_from_slice(&conn_id);
-
-                    let scid = quiche::ConnectionId::from_ref(&scid);
-
-                    // Token is always present in Initial packets.
-                    let token = hdr.token.as_ref().unwrap();
-
-                    // Do stateless retry if the client didn't send a token.
-                    if token.is_empty() {
-                        log::debug!("Doing stateless retry");
-
-                        let new_token = mint_token(&hdr, &from);
-
-                        let len = quiche::retry(
-                            &hdr.scid,
-                            &hdr.dcid,
-                            &scid,
-                            &new_token,
-                            hdr.version,
-                            &mut out,
-                        )
-                        .unwrap();
-
-                        let out = &out[..len];
-
-                        if let Err(e) = socket.send_to(out, from) {
-                            if e.kind() == std::io::ErrorKind::WouldBlock {
-                                break;
-                            }
-
-                            panic!("send() failed: {:?}", e);
-                        }
-                        continue 'read;
-                    }
-
-                    let odcid = validate_token(&from, token);
-
-                    if odcid.is_none() {
-                        log::error!("Invalid address validation token");
-                        continue 'read;
-                    }
-
-                    if scid.len() != hdr.dcid.len() {
-                        log::error!("Invalid destination connection ID");
-                        continue 'read;
-                    }
-
-                    let scid = hdr.dcid.clone();
-
-                    log::info!("New connection: dcid={:?} scid={:?}", hdr.dcid, scid);
-
-                    let mut conn =
-                        quiche::accept(&scid, odcid.as_ref(), local_addr, from, &mut config)?;
-
-                    let recv_info = quiche::RecvInfo {
-                        to: socket.local_addr().unwrap(),
-                        from,
-                    };
-                    // Process potentially coalesced packets.
-                    match conn.recv(pkt_buf, recv_info) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            log::error!("{} recv failed: {:?}", conn.trace_id(), e);
-                            continue 'read;
-                        }
-                    };
-
-                    let client = Client {
-                        connection: conn,
-                        partial_responses: PartialResponses::new(),
-                        read_streams: ReadStreams::new(),
-                        next_stream: get_next_unidi(0, true, maximum_concurrent_streams),
-                    };
-
-                    let mut client_wl = clients.write().unwrap();
-                    client_wl.insert(scid.clone(), Mutex::new(client));
-                } else {
-                    // get the existing client
-                    let client = match clients_rl.get(&hdr.dcid) {
-                        Some(v) => v,
-                        None => clients_rl
-                            .get(&conn_id)
-                            .expect("The client should exist in the map"),
-                    };
-
-                    let recv_info = quiche::RecvInfo {
-                        to: socket.local_addr().unwrap(),
-                        from,
-                    };
-                    let mut client = client.lock().unwrap();
-                    // Process potentially coalesced packets.
-                    match client.connection.recv(pkt_buf, recv_info) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            log::error!("{} recv failed: {:?}", client.connection.trace_id(), e);
-                            continue 'read;
-                        }
-                    };
+                let filters = Arc::new(RwLock::new(Vec::new()));
+                create_client_task(
+                    conn,
+                    client_reciver,
+                    write_sender.clone(),
+                    client_message_rx,
+                    filters.clone(),
+                    maximum_concurrent_streams,
+                    stop_laggy_client,
+                );
+                let mut lk = dispatching_connections.lock().unwrap();
+                lk.insert(
+                    scid.clone(),
+                    DispatchingData {
+                        sender: client_message_sx,
+                        filters,
+                    },
+                );
+                clients.insert(scid, client_sender);
+            } else {
+                // get the existing client
+                let client = match clients.get(&hdr.dcid) {
+                    Some(v) => v,
+                    None => clients
+                        .get(&conn_id)
+                        .expect("The client should exist in the map"),
                 };
+
+                let recv_info = quiche::RecvInfo {
+                    to: socket.local_addr().unwrap(),
+                    from,
+                };
+                if client.send((recv_info, pkt_buf.to_vec())).is_err() {
+                    // client is closed
+                    clients.remove(&hdr.dcid);
+                    clients.remove(&conn_id);
+                }
+            };
+        }
+
+        let mut do_write = true;
+        if let Some((send_info, buf)) = &last_write {
+            match socket.send_to(buf, send_info.to) {
+                Ok(_len) => {
+                    last_write = None;
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        log::warn!("writing would block");
+                        do_write = false;
+                    }
+                    log::error!("send() failed: {:?}", e);
+                }
             }
         }
 
-        // Generate outgoing QUIC packets for all active connections and send
-        // them on the UDP socket, until quiche reports that there are no more
-        // packets to be sent.
-        let clients_rl = clients.read().unwrap();
-
-        for (id, c) in clients_rl.iter() {
-            let lk = c.lock();
-            match lk {
-                Ok(mut client) => {
-                    let Client {
-                        connection: conn,
-                        read_streams,
-                        partial_responses,
-                        ..
-                    } = &mut *client;
-
-                    if conn.is_in_early_data() || conn.is_established() {
-                        // Process all readable streams.
-                        for stream in conn.readable() {
-                            let message = recv_message(conn, read_streams, stream);
-                            match message {
-                                Ok(Some(message)) => match message {
-                                    Message::Filters(mut filters) => {
-                                        let mut filters_lk = filter_map.write().unwrap();
-                                        match filters_lk.get_mut(id) {
-                                            Some(f) => {
-                                                f.append(&mut filters);
-                                            }
-                                            None => {
-                                                filters_lk.insert(id.clone(), filters);
-                                            }
-                                        }
-                                    }
-                                    Message::Ping => {
-                                        // got ping
-                                    }
-                                    _ => {
-                                        log::error!("unknown message from the client");
-                                    }
-                                },
-                                Ok(None) => {}
-                                Err(e) => {
-                                    log::error!("Error recieving message : {e}")
-                                }
-                            }
-                        }
+        if do_write {
+            while let Ok((send_info, buffer)) = write_reciver.try_recv() {
+                match socket.send_to(&buffer, send_info.to) {
+                    Ok(_len) => {
+                        // log::debug!("wrote: {} bytes", len);
                     }
-
-                    for stream_id in conn.writable() {
-                        handle_writable(conn, partial_responses, stream_id);
-                    }
-
-                    loop {
-                        if let Some((buf, send_info)) = &last_write {
-                            match socket.send_to(&buf, send_info.to) {
-                                Ok(_len) => {
-                                    last_write = None;
-                                }
-                                Err(e) => {
-                                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                                        log::warn!("writing would block");
-                                        break;
-                                    }
-                                    log::error!("send() failed: {:?}", e);
-                                }
-                            }
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::WouldBlock {
+                            log::warn!("writing would block");
+                            last_write = Some((send_info, buffer));
+                            break;
                         }
-
-                        let (write, send_info) = match conn.send(&mut out) {
-                            Ok(v) => v,
-                            Err(quiche::Error::Done) => {
-                                log::trace!("{} done writing", conn.trace_id());
-                                break;
-                            }
-                            Err(e) => {
-                                log::error!(
-                                    "{} send failed: {:?}, closing connection",
-                                    conn.trace_id(),
-                                    e
-                                );
-                                conn.close(false, 0x1, b"fail").ok();
-                                break;
-                            }
-                        };
-
-                        match socket.send_to(&out[..write], send_info.to) {
-                            Ok(_len) => {
-                                // log::debug!("wrote: {} bytes", len);
-                            }
-                            Err(e) => {
-                                if e.kind() == std::io::ErrorKind::WouldBlock {
-                                    log::warn!("writing would block");
-                                    let vec = out[..write].to_vec();
-                                    last_write = Some((vec, send_info));
-                                    break;
-                                }
-                                log::error!("send() failed: {:?}", e);
-                            }
-                        }
+                        log::error!("send() failed: {:?}", e);
                     }
-                }
-                Err(_) => {
-                    log::error!("client lock poisoned");
                 }
             }
         }
     }
 }
 
-fn create_thread_to_dispatch_messages(
-    clients: Arc<ClientMap>,
-    filters_maps: Arc<FilterMap>,
-    message_send_queue: mpsc::Receiver<ChannelMessage>,
+fn create_client_task(
+    connection: quiche::Connection,
+    receiver: mpsc::Receiver<(quiche::RecvInfo, Vec<u8>)>,
+    sender: mpsc::Sender<(quiche::SendInfo, Vec<u8>)>,
+    message_channel: mpsc::Receiver<(Vec<u8>, u8)>,
+    filters: Arc<RwLock<Vec<Filter>>>,
     maximum_concurrent_streams: u64,
-    compression_type: CompressionType,
     stop_laggy_client: bool,
-) -> JoinHandle<()> {
+) {
+    std::thread::spawn(move || {
+        let mut partial_responses = PartialResponses::new();
+        let mut read_streams = ReadStreams::new();
+        let mut next_stream: u64 = 1;
+        let mut connection = connection;
+        loop {
+            while let Ok((info, mut buf)) = receiver.try_recv() {
+                let buf = buf.as_mut_slice();
+                match connection.recv(buf, info) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::error!("{} recv failed: {:?}", connection.trace_id(), e);
+                        break;
+                    }
+                };
+            }
+
+            if connection.is_in_early_data() || connection.is_established() {
+                // Process all readable streams.
+                for stream in connection.readable() {
+                    let message = recv_message(&mut connection, &mut read_streams, stream);
+                    match message {
+                        Ok(Some(message)) => match message {
+                            Message::Filters(mut f) => {
+                                let mut filter_lk = filters.write().unwrap();
+                                filter_lk.append(&mut f);
+                            }
+                            Message::Ping => {
+                                // got ping
+                            }
+                            _ => {
+                                log::error!("unknown message from the client");
+                            }
+                        },
+                        Ok(None) => {}
+                        Err(e) => {
+                            log::error!("Error recieving message : {e}")
+                        }
+                    }
+                }
+            }
+
+            for stream_id in connection.writable() {
+                handle_writable(&mut connection, &mut partial_responses, stream_id);
+            }
+
+            loop {
+                let mut out = [0; MAX_DATAGRAM_SIZE];
+                match connection.send(&mut out) {
+                    Ok((len, send_info)) => {
+                        sender.send((send_info, out[..len].to_vec())).unwrap();
+                    }
+                    Err(quiche::Error::Done) => {
+                        log::trace!("{} done writing", connection.trace_id());
+                        break;
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "{} send failed: {:?}, closing connection",
+                            connection.trace_id(),
+                            e
+                        );
+                        connection.close(false, 0x1, b"fail").ok();
+                        break;
+                    }
+                };
+            }
+
+            for _ in 0..MAX_MESSAGE_DEPILE_IN_LOOP {
+                if let Ok((message, priority)) = message_channel.try_recv() {
+                    if connection.is_closed() || !connection.is_established() {
+                        continue;
+                    }
+
+                    let stream_id = next_stream;
+
+                    next_stream = get_next_unidi(stream_id, true, maximum_concurrent_streams);
+
+                    match connection.stream_priority(stream_id, priority, true) {
+                        Ok(_) => {
+                            log::trace!("priority was set correctly");
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "Unable to set priority for the stream {}, error {}",
+                                stream_id,
+                                e
+                            );
+                        }
+                    }
+                    log::trace!("dispatching {} on stream id : {}", message.len(), stream_id);
+                    if let Err(e) =
+                        send_message(&mut connection, &mut partial_responses, stream_id, &message)
+                    {
+                        log::error!("Error sending message : {e}");
+                        if stop_laggy_client {
+                            if let Err(e) = connection.close(true, 1, b"laggy client") {
+                                if e != quiche::Error::Done {
+                                    log::error!("error closing client : {}", e);
+                                }
+                            } else {
+                                log::info!(
+                                    "Stopping laggy client : {} because of error : {}",
+                                    connection.trace_id(),
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            connection.on_timeout();
+            if connection.is_closed() {
+                log::info!(
+                    "{} connection closed {:?}",
+                    connection.trace_id(),
+                    connection.stats()
+                );
+                break;
+            }
+        }
+    });
+}
+
+fn create_dispatching_thread(
+    message_send_queue: mpsc::Receiver<ChannelMessage>,
+    dispatching_connections: DispachingConnections,
+    compression_type: CompressionType,
+) {
     std::thread::spawn(move || {
         while let Ok(message) = message_send_queue.recv() {
-            let dispatch_to = filters_maps
-                .read()
-                .unwrap()
+            let mut dispatching_connections_lk = dispatching_connections.lock().unwrap();
+
+            let dispatching_connections = dispatching_connections_lk
                 .iter()
-                .filter_map(|(id, filters)| {
+                .filter_map(|(id, x)| {
+                    let filters = x.filters.read().unwrap();
                     if filters.iter().any(|x| x.allows(&message)) {
                         Some(id.clone())
                     } else {
@@ -383,7 +427,7 @@ fn create_thread_to_dispatch_messages(
                 })
                 .collect_vec();
 
-            if !dispatch_to.is_empty() {
+            if !dispatching_connections.is_empty() {
                 let (message, priority) = match message {
                     ChannelMessage::Account(account, slot) => {
                         let slot_identifier = SlotIdentifier { slot };
@@ -412,60 +456,19 @@ fn create_thread_to_dispatch_messages(
                 };
                 let binary =
                     bincode::serialize(&message).expect("Message should be serializable in binary");
-                let clients = clients.read().unwrap();
-                for client_id in dispatch_to {
-                    let Some(client) = clients.get(&client_id) else {
-                        log::error!("client not found");
-                        continue;
-                    };
-                    let mut client = client.lock().unwrap();
-
-                    let Client {
-                        connection: conn,
-                        partial_responses,
-                        next_stream,
-                        ..
-                    } = &mut *client;
-
-                    if conn.is_closed() || !conn.is_established() {
-                        continue;
-                    }
-
-                    let stream_id = *next_stream;
-
-                    *next_stream = get_next_unidi(stream_id, true, maximum_concurrent_streams);
-
-                    match conn.stream_priority(stream_id, priority, true) {
-                        Ok(_) => {
-                            log::trace!("priority was set correctly");
-                        }
-                        Err(e) => {
-                            log::error!(
-                                "Unable to set priority for the stream {}, error {}",
-                                stream_id,
-                                e
-                            );
-                        }
-                    }
-                    log::trace!("dispatching {} on stream id : {}", binary.len(), stream_id);
-                    if let Err(e) = send_message(conn, partial_responses, stream_id, &binary) {
-                        log::error!("Error sending message : {e}");
-                        if stop_laggy_client {
-                            if let Err(e) = client.connection.close(true, 1, b"laggy client") {
-                                if e != quiche::Error::Done {
-                                    log::error!("error closing client : {}", e);
-                                }
-                            } else {
-                                log::info!(
-                                    "Stopping laggy client : {} because of error : {}",
-                                    client.connection.trace_id(),
-                                    e
-                                );
-                            }
-                        }
+                for id in dispatching_connections.iter() {
+                    if dispatching_connections_lk
+                        .get(id)
+                        .unwrap()
+                        .sender
+                        .send((binary.clone(), priority))
+                        .is_err()
+                    {
+                        // client is closed
+                        dispatching_connections_lk.remove(id);
                     }
                 }
             }
         }
-    })
+    });
 }
