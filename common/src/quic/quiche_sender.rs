@@ -12,7 +12,7 @@ pub fn send_message(
     stream_id: u64,
     message: &Vec<u8>,
 ) -> std::result::Result<(), quiche::Error> {
-    let written = match connection.stream_send(stream_id, message, false) {
+    let written = match connection.stream_send(stream_id, message, true) {
         Ok(v) => v,
         Err(quiche::Error::Done) => 0,
         Err(e) => {
@@ -28,13 +28,13 @@ pub fn send_message(
         };
         partial_responses.insert(stream_id, response);
     } else {
-        match connection.stream_send(stream_id, &[], true) {
-            Ok(_) => {}
-            Err(quiche::Error::Done) => {}
-            Err(e) => {
-                return Err(e);
-            }
-        }
+        // match connection.stream_send(stream_id, &[], true) {
+        //     Ok(_) => {}
+        //     Err(quiche::Error::Done) => {}
+        //     Err(e) => {
+        //         return Err(e);
+        //     }
+        // }
     }
     Ok(())
 }
@@ -56,7 +56,7 @@ pub fn handle_writable(
         .expect("should have a stream id");
     let body = &resp.binary;
 
-    let written = match conn.stream_send(stream_id, body, false) {
+    let written = match conn.stream_send(stream_id, body, true) {
         Ok(v) => v,
         Err(quiche::Error::Done) => 0,
         Err(e) => {
@@ -74,13 +74,13 @@ pub fn handle_writable(
     if written == resp.binary.len() {
         log::debug!("fin writing stream : {}", stream_id);
         partial_responses.remove(&stream_id);
-        match conn.stream_send(stream_id, b"", true) {
-            Ok(_) => {}
-            Err(quiche::Error::Done) => {}
-            Err(e) => {
-                log::error!("{} fin stream failed {:?}", conn.trace_id(), e);
-            }
-        }
+        // match conn.stream_send(stream_id, b"", true) {
+        //     Ok(_) => {}
+        //     Err(quiche::Error::Done) => {}
+        //     Err(e) => {
+        //         log::error!("{} fin stream failed {:?}", conn.trace_id(), e);
+        //     }
+        // }
     } else {
         resp.binary = resp.binary[written..].to_vec();
         resp.written += written;

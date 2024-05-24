@@ -48,7 +48,7 @@ pub fn main() {
     loop {
         let diff = Instant::now().duration_since(instant);
         if diff < Duration::from_secs(1) {
-            std::thread::sleep(diff);
+            std::thread::sleep(Duration::from_secs(1) - diff);
         }
         instant = Instant::now();
         slot += 1;
@@ -65,7 +65,7 @@ pub fn main() {
                 },
                 write_version,
             };
-            let channel_message = ChannelMessage::Account(account, slot, vec![8, 4, 7, 3]);
+            let channel_message = ChannelMessage::Account(account, slot);
             quic_server.send_message(channel_message).unwrap();
         }
     }

@@ -75,7 +75,7 @@ pub fn get_next_unidi(
                 break;
             }
 
-            if is_unidi(stream_id, is_server) && !is_bidi(stream_id) {
+            if is_unidi(stream_id, is_server) {
                 return stream_id;
             }
         }

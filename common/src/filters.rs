@@ -68,7 +68,7 @@ pub struct AccountFilter {
 
 impl AccountFilter {
     pub fn allows(&self, message: &ChannelMessage) -> bool {
-        if let ChannelMessage::Account(account, _, _) = message {
+        if let ChannelMessage::Account(account, _) = message {
             if let Some(owner) = self.owner {
                 if owner == account.account.owner {
                     // to do move the filtering somewhere else because here we need to decode the account data
@@ -147,7 +147,6 @@ mod tests {
                 write_version: 0,
             },
             0,
-            vec![2, 3, 4, 6],
         );
 
         let msg_2 = ChannelMessage::Account(
@@ -157,7 +156,6 @@ mod tests {
                 write_version: 0,
             },
             0,
-            vec![2, 3, 4, 6],
         );
 
         let msg_3 = ChannelMessage::Account(
@@ -167,7 +165,6 @@ mod tests {
                 write_version: 0,
             },
             0,
-            vec![2, 3, 4, 6],
         );
 
         let f1 = AccountFilter {
