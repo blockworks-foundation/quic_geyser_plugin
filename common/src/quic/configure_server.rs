@@ -36,6 +36,7 @@ pub fn configure_server(
     config.set_initial_max_streams_bidi(max_concurrent_streams);
     config.set_initial_max_streams_uni(max_concurrent_streams);
     config.set_disable_active_migration(true);
+    config.set_max_connection_window(128 * 1024 * 1024); // 128 Mbs
     config.enable_early_data();
     config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
     Ok(config)

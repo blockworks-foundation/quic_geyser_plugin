@@ -23,15 +23,19 @@ pub fn main() {
 
     let config = ConfigQuicPlugin {
         address: SocketAddr::from_str(format!("0.0.0.0:{}", args.port).as_str()).unwrap(),
+        log_level: "info".to_string(),
         quic_parameters: QuicParameters {
             max_number_of_streams_per_client: 1024 * 1024,
             recieve_window_size: DEFAULT_MAX_RECIEVE_WINDOW_SIZE,
             connection_timeout: 60,
+            max_number_of_connections: 10,
         },
         compression_parameters: CompressionParameters {
             compression_type: quic_geyser_common::compression::CompressionType::None,
         },
         number_of_retries: 100,
+        allow_accounts: true,
+        allow_accounts_at_startup: false,
     };
     let quic_server = QuicServer::new(config).unwrap();
 

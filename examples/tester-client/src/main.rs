@@ -12,7 +12,7 @@ use quic_geyser_common::{
     types::connections_parameters::ConnectionParameters,
 };
 use solana_rpc_client::rpc_client::RpcClient;
-use solana_sdk::commitment_config::CommitmentConfig;
+use solana_sdk::commitment_config::{CommitmentConfig, CommitmentLevel};
 
 pub mod cli;
 
@@ -89,33 +89,44 @@ pub fn main() {
         let account_slot = account_slot.clone();
         let slot_slot = slot_slot.clone();
         let blockmeta_slot = blockmeta_slot.clone();
-        std::thread::spawn(move || loop {
-            sleep(Duration::from_secs(1));
-            let bytes_transfered = bytes_transfered.swap(0, std::sync::atomic::Ordering::Relaxed);
-            println!("------------------------------------------");
-            println!(" Bytes Transfered : {}", bytes_transfered);
-            println!(
-                " Accounts transfered size (uncompressed) : {}",
-                total_accounts_size.swap(0, std::sync::atomic::Ordering::Relaxed)
-            );
-            println!(
-                " Accounts Notified : {}",
-                account_notification.swap(0, std::sync::atomic::Ordering::Relaxed)
-            );
-            println!(
-                " Slots Notified : {}",
-                slot_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
-            );
-            println!(
-                " Blockmeta notified : {}",
-                blockmeta_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
-            );
-            println!(
-                " Transactions notified : {}",
-                transaction_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
-            );
+        std::thread::spawn(move || {
+            let mut max_byte_transfer_rate = 0;
+            loop {
+                sleep(Duration::from_secs(1));
+                let bytes_transfered =
+                    bytes_transfered.swap(0, std::sync::atomic::Ordering::Relaxed);
+                if max_byte_transfer_rate < bytes_transfered {
+                    max_byte_transfer_rate = bytes_transfered;
+                }
+                println!("------------------------------------------");
+                println!(" Bytes Transfered : {} Mbs/s", bytes_transfered / 1_000_000);
+                println!(
+                    " MAX Bytes Transfered : {} Mbs/s",
+                    max_byte_transfer_rate / 1_000_000
+                );
+                println!(
+                    " Accounts transfered size (uncompressed) : {}",
+                    total_accounts_size.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
+                println!(
+                    " Accounts Notified : {}",
+                    account_notification.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
+                println!(
+                    " Slots Notified : {}",
+                    slot_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
+                println!(
+                    " Blockmeta notified : {}",
+                    blockmeta_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
+                println!(
+                    " Transactions notified : {}",
+                    transaction_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
 
-            println!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {} ", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed));
+                println!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {} ", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed));
+            }
         });
     }
 
@@ -168,7 +179,9 @@ pub fn main() {
                     quic_geyser_common::message::Message::SlotMsg(slot) => {
                         log::trace!("got slot notification : {} ", slot.slot);
                         slot_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        slot_slot.store(slot.slot, std::sync::atomic::Ordering::Relaxed);
+                        if slot.commitment_level == CommitmentLevel::Processed {
+                            slot_slot.store(slot.slot, std::sync::atomic::Ordering::Relaxed);
+                        }
                     }
                     quic_geyser_common::message::Message::BlockMetaMsg(block_meta) => {
                         log::trace!("got blockmeta notification : {} ", block_meta.slot);

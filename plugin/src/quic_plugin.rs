@@ -30,10 +30,10 @@ impl GeyserPlugin for QuicGeyserPlugin {
     }
 
     fn on_load(&mut self, config_file: &str) -> PluginResult<()> {
-        solana_logger::setup_with_default("info");
         log::info!("loading quic_geyser plugin");
         let config = Config::load_from_file(config_file)?;
         log::info!("Quic plugin config correctly loaded");
+        solana_logger::setup_with_default(&config.quic_plugin.log_level);
         let quic_server = QuicServer::new(config.quic_plugin).map_err(|_| {
             GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
         })?;
@@ -50,11 +50,17 @@ impl GeyserPlugin for QuicGeyserPlugin {
         &self,
         account: ReplicaAccountInfoVersions,
         slot: Slot,
-        _is_startup: bool,
+        is_startup: bool,
     ) -> PluginResult<()> {
         let Some(quic_server) = &self.quic_server else {
             return Ok(());
         };
+
+        if !quic_server.quic_plugin_config.allow_accounts
+            || (is_startup && !quic_server.quic_plugin_config.allow_accounts_at_startup)
+        {
+            return Ok(());
+        }
         let ReplicaAccountInfoVersions::V0_0_3(account_info) = account else {
             return Err(GeyserPluginError::AccountsUpdateError {
                 msg: "Unsupported account info version".to_string(),

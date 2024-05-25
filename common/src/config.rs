@@ -9,9 +9,13 @@ use crate::{
 
 pub const DEFAULT_CONNECTION_TIMEOUT: u64 = 10;
 
+pub const DEFAULT_MAX_NB_CONNECTIONS: u64 = 10;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigQuicPlugin {
+    #[serde(default = "ConfigQuicPlugin::default_log_level")]
+    pub log_level: String,
     /// Address of Grpc service.
     #[serde(default = "ConfigQuicPlugin::default_address")]
     pub address: SocketAddr,
@@ -21,6 +25,10 @@ pub struct ConfigQuicPlugin {
     pub compression_parameters: CompressionParameters,
     #[serde(default = "ConfigQuicPlugin::default_number_of_retries")]
     pub number_of_retries: u64,
+    #[serde(default = "ConfigQuicPlugin::default_allow_accounts")]
+    pub allow_accounts: bool,
+    #[serde(default)]
+    pub allow_accounts_at_startup: bool,
 }
 
 impl ConfigQuicPlugin {
@@ -31,6 +39,14 @@ impl ConfigQuicPlugin {
     fn default_number_of_retries() -> u64 {
         100
     }
+
+    fn default_log_level() -> String {
+        "info".to_string()
+    }
+
+    fn default_allow_accounts() -> bool {
+        true
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +54,7 @@ pub struct QuicParameters {
     pub max_number_of_streams_per_client: u64,
     pub recieve_window_size: u64,
     pub connection_timeout: u64,
+    pub max_number_of_connections: u64,
 }
 
 impl Default for QuicParameters {
@@ -46,6 +63,7 @@ impl Default for QuicParameters {
             max_number_of_streams_per_client: DEFAULT_MAX_STREAMS,
             recieve_window_size: DEFAULT_MAX_RECIEVE_WINDOW_SIZE, // 1 Mb
             connection_timeout: DEFAULT_CONNECTION_TIMEOUT,       // 10s
+            max_number_of_connections: DEFAULT_MAX_NB_CONNECTIONS,
         }
     }
 }
