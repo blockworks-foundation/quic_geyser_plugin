@@ -20,13 +20,19 @@ pub fn client_loop(
     mut config: quiche::Config,
     socket_addr: SocketAddr,
     server_address: SocketAddr,
-    message_send_queue: std::sync::mpsc::Receiver<Message>,
+    message_send_queue: mio_channel::Receiver<Message>,
     message_recv_queue: std::sync::mpsc::Sender<Message>,
     is_connected: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
-    let maximum_streams = u64::MAX;
-    let socket = std::net::UdpSocket::bind(socket_addr)?;
-    socket.set_nonblocking(true)?;
+    let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
+    let mut poll = mio::Poll::new()?;
+    let mut events = mio::Events::with_capacity(1024);
+
+    poll.registry().register(
+        &mut socket,
+        mio::Token(0),
+        mio::Interest::READABLE | mio::Interest::WRITABLE,
+    )?;
 
     let mut scid = [0; quiche::MAX_CONN_ID_LEN];
     if SystemRandom::new().fill(&mut scid[..]).is_err() {
@@ -37,132 +43,70 @@ pub fn client_loop(
     let scid = quiche::ConnectionId::from_ref(&scid);
     let local_addr = socket.local_addr()?;
 
-    let mut conn = quiche::connect(None, &scid, local_addr, server_address, &mut config)?;
+    let mut connection = quiche::connect(None, &scid, local_addr, server_address, &mut config)?;
 
-    let mut out = [0; MAX_DATAGRAM_SIZE];
-    let (write, send_info) = conn.send(&mut out).expect("initial send failed");
+    // sending initial connection request
+    {
+        let mut out = [0; MAX_DATAGRAM_SIZE];
+        let (write, send_info) = connection.send(&mut out).expect("initial send failed");
 
-    if let Err(e) = socket.send_to(&out[..write], send_info.to) {
-        bail!("send() failed: {:?}", e);
+        if let Err(e) = socket.send_to(&out[..write], send_info.to) {
+            bail!("send() failed: {:?}", e);
+        }
     }
 
-    let mut current_stream_id = 3;
+    let (data_to_quiche, quiche_data_receiver) = mio_channel::channel();
+    let (quiche_data_sender, mut data_from_quiche) = mio_channel::channel();
+
+    poll.registry()
+        .register(
+            &mut data_from_quiche,
+            mio::Token(1),
+            mio::Interest::READABLE,
+        )
+        .unwrap();
+
+    create_quiche_client_thread(
+        connection,
+        quiche_data_receiver,
+        quiche_data_sender,
+        message_send_queue,
+        message_recv_queue,
+        is_connected,
+    );
+
     let mut buf = [0; 65535];
-    let mut out = [0; MAX_DATAGRAM_SIZE];
-    let mut partial_responses = PartialResponses::new();
-    let mut read_streams = ReadStreams::new();
-    let mut connected = false;
-    let mut instance = Instant::now();
-    let ping_binary = bincode::serialize(&Message::Ping)?;
+    'client: loop {
+        poll.poll(&mut events, Some(Duration::from_micros(500)))?;
 
-    loop {
-        let network_updates = true;
-        let channel_updates = true;
-
-        if network_updates {
-            'read: loop {
-                let (len, from) = match socket.recv_from(&mut buf) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        if e.kind() == std::io::ErrorKind::WouldBlock {
-                            break 'read;
-                        }
-                        bail!("recv() failed: {:?}", e);
-                    }
-                };
-
-                let recv_info = quiche::RecvInfo {
-                    to: socket.local_addr()?,
-                    from,
-                };
-
-                // Process potentially coalesced packets.
-                if let Err(e) = conn.recv(&mut buf[..len], recv_info) {
-                    log::error!("recv failed: {:?}", e);
-                    continue 'read;
-                };
-            }
-        }
-
-        if !connected && conn.is_established() {
-            is_connected.store(true, std::sync::atomic::Ordering::Relaxed);
-            connected = true;
-        }
-
-        // chanel updates
-        if channel_updates && conn.is_established() {
-            // io events
-            for stream_id in conn.readable() {
-                let message = recv_message(&mut conn, &mut read_streams, stream_id);
-                match message {
-                    Ok(Some(message)) => {
-                        if let Err(e) = message_recv_queue.send(message) {
-                            log::error!("Error sending message on the channel : {e}");
-                        }
-                    }
-                    Ok(None) => {
-                        // do nothing
-                    }
-                    Err(e) => {
-                        log::error!("Error recieving message : {e}")
+        'read: loop {
+            match socket.recv_from(&mut buf) {
+                Ok((len, from)) => {
+                    let recv_info = quiche::RecvInfo {
+                        to: socket.local_addr()?,
+                        from,
+                    };
+                    if data_to_quiche
+                        .send((recv_info, buf[..len].to_vec()))
+                        .is_err()
+                    {
+                        // client is closed
+                        break 'client;
                     }
                 }
-            }
-
-            for stream_id in conn.writable() {
-                handle_writable(&mut conn, &mut partial_responses, stream_id);
-            }
-
-            let current_instance = Instant::now();
-            // sending ping filled
-            if current_instance.duration_since(instance) > Duration::from_secs(5) {
-                log::debug!("sending ping to the server");
-                instance = current_instance;
-                current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
-                if let Err(e) = send_message(
-                    &mut conn,
-                    &mut partial_responses,
-                    current_stream_id,
-                    &ping_binary,
-                ) {
-                    log::error!("sending ping failed with error {e:?}");
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        break 'read;
+                    }
+                    bail!("recv() failed: {:?}", e);
                 }
-            }
-
-            // channel events
-            if let Ok(message_to_send) = message_send_queue.try_recv() {
-                current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
-                let binary =
-                    bincode::serialize(&message_to_send).expect("Message should be serializable");
-                if let Err(e) = send_message(
-                    &mut conn,
-                    &mut partial_responses,
-                    current_stream_id,
-                    &binary,
-                ) {
-                    log::error!("Sending failed with error {e:?}");
-                }
-            }
+            };
         }
 
         // Generate outgoing QUIC packets and send them on the UDP socket, until
         // quiche reports that there are no more packets to be sent.
-        loop {
-            let (write, send_info) = match conn.send(&mut out) {
-                Ok(v) => v,
-
-                Err(quiche::Error::Done) => {
-                    break;
-                }
-
-                Err(e) => {
-                    log::error!("send failed: {:?}", e);
-                    conn.close(false, 0x1, b"fail").ok();
-                    break;
-                }
-            };
-
-            match socket.send_to(&out[..write], send_info.to) {
+        while let Ok((send_info, buf)) = data_from_quiche.try_recv() {
+            match socket.send_to(&buf, send_info.to) {
                 Ok(_len) => {}
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -173,14 +117,145 @@ pub fn client_loop(
                 }
             }
         }
-
-        if conn.is_closed() {
-            is_connected.store(false, std::sync::atomic::Ordering::Relaxed);
-            log::info!("connection closed, {:?}", conn.stats());
-            break;
-        }
     }
     Ok(())
+}
+
+pub fn create_quiche_client_thread(
+    connection: quiche::Connection,
+    mut receiver: mio_channel::Receiver<(quiche::RecvInfo, Vec<u8>)>,
+    sender: mio_channel::Sender<(quiche::SendInfo, Vec<u8>)>,
+    message_send_queue: mio_channel::Receiver<Message>,
+    message_recv_queue: std::sync::mpsc::Sender<Message>,
+    is_connected: Arc<AtomicBool>,
+) {
+    std::thread::spawn(move || {
+        let mut connection = connection;
+
+        let mut poll = mio::Poll::new().unwrap();
+        let mut events = mio::Events::with_capacity(1024);
+
+        poll.registry()
+            .register(&mut receiver, mio::Token(1), mio::Interest::READABLE)
+            .unwrap();
+
+        let maximum_streams = u64::MAX;
+        let mut current_stream_id = 3;
+        let mut out = [0; MAX_DATAGRAM_SIZE];
+        let mut partial_responses = PartialResponses::new();
+        let mut read_streams = ReadStreams::new();
+        let mut connected = false;
+        let mut instance = Instant::now();
+        let ping_binary = bincode::serialize(&Message::Ping).unwrap();
+
+        'client: loop {
+            poll.poll(&mut events, Some(Duration::from_micros(100)))
+                .unwrap();
+            if events.is_empty() {
+                connection.on_timeout();
+            }
+
+            while let Ok((recv_info, mut buf)) = receiver.try_recv() {
+                // Process potentially coalesced packets.
+                if let Err(e) = connection.recv(buf.as_mut_slice(), recv_info) {
+                    match e {
+                        quiche::Error::Done => {
+                            // done reading
+                            break;
+                        }
+                        _ => {
+                            log::error!("recv failed: {:?}", e);
+                            break;
+                        }
+                    }
+                };
+            }
+
+            if !connected && connection.is_established() {
+                is_connected.store(true, std::sync::atomic::Ordering::Relaxed);
+                connected = true;
+            }
+
+            // chanel updates
+            if connection.is_established() {
+                // io events
+                for stream_id in connection.readable() {
+                    let message = recv_message(&mut connection, &mut read_streams, stream_id);
+                    match message {
+                        Ok(Some(message)) => {
+                            if let Err(e) = message_recv_queue.send(message) {
+                                log::error!("Error sending message on the channel : {e}");
+                            }
+                        }
+                        Ok(None) => {
+                            // do nothing
+                        }
+                        Err(e) => {
+                            log::error!("Error recieving message : {e}")
+                        }
+                    }
+                }
+                // sending ping
+                if instance.elapsed() > Duration::from_secs(5) {
+                    log::debug!("sending ping to the server");
+                    instance = Instant::now();
+                    current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
+                    if let Err(e) = send_message(
+                        &mut connection,
+                        &mut partial_responses,
+                        current_stream_id,
+                        &ping_binary,
+                    ) {
+                        log::error!("sending ping failed with error {e:?}");
+                    }
+                }
+
+                // channel events
+                if let Ok(message_to_send) = message_send_queue.try_recv() {
+                    current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
+                    let binary = bincode::serialize(&message_to_send)
+                        .expect("Message should be serializable");
+                    if let Err(e) = send_message(
+                        &mut connection,
+                        &mut partial_responses,
+                        current_stream_id,
+                        &binary,
+                    ) {
+                        log::error!("Sending failed with error {e:?}");
+                    }
+                }
+            }
+
+            for stream_id in connection.writable() {
+                handle_writable(&mut connection, &mut partial_responses, stream_id);
+            }
+
+            if connection.is_closed() {
+                is_connected.store(false, std::sync::atomic::Ordering::Relaxed);
+                log::info!("connection closed, {:?}", connection.stats());
+                break;
+            }
+
+            loop {
+                match connection.send(&mut out) {
+                    Ok((write, send_info)) => {
+                        if sender.send((send_info, out[..write].to_vec())).is_err() {
+                            log::error!("client socket thread broken");
+                            break 'client;
+                        }
+                    }
+                    Err(quiche::Error::Done) => {
+                        break;
+                    }
+                    Err(e) => {
+                        log::error!("send failed: {:?}", e);
+                        connection.close(false, 0x1, b"fail").ok();
+                        break;
+                    }
+                };
+            }
+        }
+    });
 }
 
 #[cfg(test)]
@@ -301,7 +376,7 @@ mod tests {
 
         // client loop
         let server_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-        let (client_sx_queue, rx_sent_queue) = mpsc::channel();
+        let (client_sx_queue, rx_sent_queue) = mio_channel::channel();
         let (sx_recv_queue, client_rx_queue) = mpsc::channel();
 
         let _client_loop_jh = std::thread::spawn(move || {

@@ -27,14 +27,6 @@ pub fn send_message(
             written,
         };
         partial_responses.insert(stream_id, response);
-    } else {
-        // match connection.stream_send(stream_id, &[], true) {
-        //     Ok(_) => {}
-        //     Err(quiche::Error::Done) => {}
-        //     Err(e) => {
-        //         return Err(e);
-        //     }
-        // }
     }
     Ok(())
 }
@@ -44,11 +36,11 @@ pub fn handle_writable(
     conn: &mut quiche::Connection,
     partial_responses: &mut PartialResponses,
     stream_id: u64,
-) {
+) -> bool {
     log::trace!("{} stream {} is writable", conn.trace_id(), stream_id);
 
     if !partial_responses.contains_key(&stream_id) {
-        return;
+        return false;
     }
 
     let resp = partial_responses
@@ -63,12 +55,12 @@ pub fn handle_writable(
             partial_responses.remove(&stream_id);
 
             log::error!("{} stream send failed {:?}", conn.trace_id(), e);
-            return;
+            return false;
         }
     };
 
     if written == 0 {
-        return;
+        return false;
     }
 
     if written == resp.binary.len() {
@@ -85,4 +77,5 @@ pub fn handle_writable(
         resp.binary = resp.binary[written..].to_vec();
         resp.written += written;
     }
+    true
 }

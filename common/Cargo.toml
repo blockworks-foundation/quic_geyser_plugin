@@ -19,6 +19,9 @@ thiserror = {workspace = true}
 itertools = { workspace = true } 
 ring = {workspace = true}
 
+mio = { workspace = true }
+mio_channel = { workspace = true }
+
 [dev-dependencies]
 rand = { workspace = true }
 tracing-subscriber = { workspace = true }

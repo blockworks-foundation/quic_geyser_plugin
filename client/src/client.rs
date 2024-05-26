@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 pub struct Client {
     is_connected: Arc<AtomicBool>,
-    filters_sender: std::sync::mpsc::Sender<Message>,
+    filters_sender: mio_channel::Sender<Message>,
 }
 
 impl Client {
@@ -27,7 +27,7 @@ impl Client {
             .parse()
             .expect("Socket address should be returned");
         let is_connected = Arc::new(AtomicBool::new(false));
-        let (filters_sender, rx_sent_queue) = std::sync::mpsc::channel();
+        let (filters_sender, rx_sent_queue) = mio_channel::channel();
         let (sx_recv_queue, client_rx_queue) = std::sync::mpsc::channel();
 
         let is_connected_client = is_connected.clone();
@@ -122,11 +122,15 @@ mod tests {
                         max_number_of_streams_per_client: 10,
                         recieve_window_size: 1_000_000,
                         connection_timeout: 10,
+                        max_number_of_connections: 1,
                     },
                     compression_parameters: CompressionParameters {
                         compression_type: CompressionType::None,
                     },
                     number_of_retries: 100,
+                    log_level: "debug".to_string(),
+                    allow_accounts: true,
+                    allow_accounts_at_startup: false,
                 };
                 let quic_server = QuicServer::new(config).unwrap();
                 // wait for client to connect and subscribe

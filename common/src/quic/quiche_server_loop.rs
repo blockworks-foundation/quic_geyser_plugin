@@ -1,10 +1,11 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     net::SocketAddr,
     sync::{
         mpsc::{self, Sender},
         Arc, Mutex, RwLock,
     },
+    time::{Duration, Instant},
 };
 
 use anyhow::bail;
@@ -26,8 +27,9 @@ use crate::{
 };
 
 use super::{
-    configure_server::MAX_DATAGRAM_SIZE, quiche_reciever::ReadStreams,
-    quiche_utils::PartialResponses,
+    configure_server::MAX_DATAGRAM_SIZE,
+    quiche_reciever::ReadStreams,
+    quiche_utils::{write_to_socket, PartialResponses},
 };
 
 struct DispatchingData {
@@ -37,7 +39,13 @@ struct DispatchingData {
 
 type DispachingConnections = Arc<Mutex<HashMap<ConnectionId<'static>, DispatchingData>>>;
 
-const MAX_MESSAGE_DEPILE_IN_LOOP: usize = 1024;
+const MAX_MESSAGE_DEPILE_IN_LOOP: usize = 128 * 1024;
+const ACCEPTABLE_PACING_DELAY: Duration = Duration::from_millis(100);
+
+struct Packet {
+    pub buffer: Vec<u8>,
+    pub to: SocketAddr,
+}
 
 pub fn server_loop(
     mut config: quiche::Config,
@@ -47,8 +55,16 @@ pub fn server_loop(
     stop_laggy_client: bool,
 ) -> anyhow::Result<()> {
     let maximum_concurrent_streams = u64::MAX;
-    let socket = std::net::UdpSocket::bind(socket_addr)?;
-    socket.set_nonblocking(true)?;
+
+    let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
+    let mut poll = mio::Poll::new()?;
+    let mut events = mio::Events::with_capacity(1024);
+
+    poll.registry().register(
+        &mut socket,
+        mio::Token(0),
+        mio::Interest::READABLE | mio::Interest::WRITABLE,
+    )?;
 
     let mut buf = [0; 65535];
     let mut out = [0; MAX_DATAGRAM_SIZE];
@@ -61,9 +77,16 @@ pub fn server_loop(
         mpsc::Sender<(quiche::RecvInfo, Vec<u8>)>,
     > = HashMap::new();
 
-    let (write_sender, write_reciver) = mpsc::channel::<(quiche::SendInfo, Vec<u8>)>();
+    let (write_sender, write_reciver) = std::sync::mpsc::channel::<(quiche::SendInfo, Vec<u8>)>();
 
-    let mut last_write: Option<(quiche::SendInfo, Vec<u8>)> = None;
+    // poll.registry().register(
+    //     &mut write_reciver,
+    //     mio::Token(1),
+    //     mio::Interest::READABLE,
+    // )?;
+
+    let mut packets_to_send: BTreeMap<Instant, Packet> = BTreeMap::new();
+
     let dispatching_connections: DispachingConnections = Arc::new(Mutex::new(HashMap::<
         ConnectionId<'static>,
         DispatchingData,
@@ -76,6 +99,7 @@ pub fn server_loop(
     );
 
     loop {
+        poll.poll(&mut events, Some(Duration::from_micros(100)))?;
         'read: loop {
             let (len, from) = match socket.recv_from(&mut buf) {
                 Ok(v) => v,
@@ -148,14 +172,8 @@ pub fn server_loop(
                     )
                     .unwrap();
 
-                    let out = &out[..len];
-
-                    if let Err(e) = socket.send_to(out, from) {
-                        if e.kind() == std::io::ErrorKind::WouldBlock {
-                            break;
-                        }
-
-                        panic!("send() failed: {:?}", e);
+                    if write_to_socket(&socket, &out[..len], from) {
+                        break;
                     }
                     continue 'read;
                 }
@@ -236,37 +254,38 @@ pub fn server_loop(
             };
         }
 
-        let mut do_write = true;
-        if let Some((send_info, buf)) = &last_write {
-            match socket.send_to(buf, send_info.to) {
-                Ok(_len) => {
-                    last_write = None;
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                        log::warn!("writing would block");
-                        do_write = false;
-                    }
-                    log::error!("send() failed: {:?}", e);
-                }
+        let instant = Instant::now();
+        // send remaining packets
+        // log::debug!("packets to send : {}", packets_to_send.len());
+        while let Some((to_send, packet)) = packets_to_send.first_key_value() {
+            if instant + ACCEPTABLE_PACING_DELAY <= *to_send {
+                break;
             }
+            if write_to_socket(&socket, &packet.buffer, packet.to) {
+                break;
+            }
+            packets_to_send.pop_first();
         }
 
-        if do_write {
-            while let Ok((send_info, buffer)) = write_reciver.try_recv() {
-                match socket.send_to(&buffer, send_info.to) {
-                    Ok(_len) => {
-                        // log::debug!("wrote: {} bytes", len);
-                    }
-                    Err(e) => {
-                        if e.kind() == std::io::ErrorKind::WouldBlock {
-                            log::warn!("writing would block");
-                            last_write = Some((send_info, buffer));
-                            break;
-                        }
-                        log::error!("send() failed: {:?}", e);
-                    }
-                }
+        let instant = Instant::now();
+        while let Ok((send_info, buffer)) = write_reciver.try_recv() {
+            if send_info.at > instant + ACCEPTABLE_PACING_DELAY {
+                packets_to_send.insert(
+                    send_info.at,
+                    Packet {
+                        buffer,
+                        to: send_info.to,
+                    },
+                );
+            } else if write_to_socket(&socket, &buffer, send_info.to) {
+                packets_to_send.insert(
+                    send_info.at,
+                    Packet {
+                        buffer,
+                        to: send_info.to,
+                    },
+                );
+                break;
             }
         }
     }
@@ -286,6 +305,10 @@ fn create_client_task(
         let mut read_streams = ReadStreams::new();
         let mut next_stream: u64 = 1;
         let mut connection = connection;
+        let mut instance = Instant::now();
+        let mut closed = false;
+        let mut out = [0; MAX_DATAGRAM_SIZE];
+
         loop {
             while let Ok((info, mut buf)) = receiver.try_recv() {
                 let buf = buf.as_mut_slice();
@@ -324,17 +347,59 @@ fn create_client_task(
             }
 
             for stream_id in connection.writable() {
-                handle_writable(&mut connection, &mut partial_responses, stream_id);
+                while handle_writable(&mut connection, &mut partial_responses, stream_id) {}
+            }
+
+            for _ in 0..MAX_MESSAGE_DEPILE_IN_LOOP {
+                if let Ok((message, priority)) = message_channel.try_recv() {
+                    if connection.is_closed() || !connection.is_established() {
+                        continue;
+                    }
+
+                    let stream_id = next_stream;
+
+                    next_stream = get_next_unidi(stream_id, true, maximum_concurrent_streams);
+
+                    if let Err(e) = connection.stream_priority(stream_id, priority, true) {
+                        log::error!(
+                            "Unable to set priority for the stream {}, error {}",
+                            stream_id,
+                            e
+                        );
+                    }
+                    if let Err(e) =
+                        send_message(&mut connection, &mut partial_responses, stream_id, &message)
+                    {
+                        log::error!("Error sending message : {e}");
+                        if stop_laggy_client && !closed {
+                            if let Err(e) = connection.close(true, 1, b"laggy client") {
+                                if e != quiche::Error::Done {
+                                    log::error!("error closing client : {}", e);
+                                }
+                            } else {
+                                log::info!(
+                                    "Stopping laggy client : {} because of error : {}",
+                                    connection.trace_id(),
+                                    e
+                                );
+                            }
+                            closed = true;
+                        }
+                    }
+                }
+            }
+
+            if instance.elapsed() > Duration::from_secs(1) {
+                instance = Instant::now();
+                connection.on_timeout();
             }
 
             loop {
-                let mut out = [0; MAX_DATAGRAM_SIZE];
                 match connection.send(&mut out) {
                     Ok((len, send_info)) => {
                         sender.send((send_info, out[..len].to_vec())).unwrap();
                     }
                     Err(quiche::Error::Done) => {
-                        log::trace!("{} done writing", connection.trace_id());
                         break;
                     }
                     Err(e) => {
@@ -349,51 +414,6 @@ fn create_client_task(
                 };
             }
 
-            for _ in 0..MAX_MESSAGE_DEPILE_IN_LOOP {
-                if let Ok((message, priority)) = message_channel.try_recv() {
-                    if connection.is_closed() || !connection.is_established() {
-                        continue;
-                    }
-
-                    let stream_id = next_stream;
-
-                    next_stream = get_next_unidi(stream_id, true, maximum_concurrent_streams);
-
-                    match connection.stream_priority(stream_id, priority, true) {
-                        Ok(_) => {
-                            log::trace!("priority was set correctly");
-                        }
-                        Err(e) => {
-                            log::error!(
-                                "Unable to set priority for the stream {}, error {}",
-                                stream_id,
-                                e
-                            );
-                        }
-                    }
-                    log::trace!("dispatching {} on stream id : {}", message.len(), stream_id);
-                    if let Err(e) =
-                        send_message(&mut connection, &mut partial_responses, stream_id, &message)
-                    {
-                        log::error!("Error sending message : {e}");
-                        if stop_laggy_client {
-                            if let Err(e) = connection.close(true, 1, b"laggy client") {
-                                if e != quiche::Error::Done {
-                                    log::error!("error closing client : {}", e);
-                                }
-                            } else {
-                                log::info!(
-                                    "Stopping laggy client : {} because of error : {}",
-                                    connection.trace_id(),
-                                    e
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-
-            connection.on_timeout();
             if connection.is_closed() {
                 log::info!(
                     "{} connection closed {:?}",

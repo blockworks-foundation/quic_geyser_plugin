@@ -1,7 +1,7 @@
 use boring::ssl::SslMethod;
 
 pub const ALPN_GEYSER_PROTOCOL_ID: &[u8] = b"geyser";
-pub const MAX_DATAGRAM_SIZE: usize = 65527; // MAX: 65527
+pub const MAX_DATAGRAM_SIZE: usize = 2000; // MAX: 65527
 
 pub fn configure_server(
     max_concurrent_streams: u64,
@@ -38,6 +38,6 @@ pub fn configure_server(
     config.set_disable_active_migration(true);
     config.set_max_connection_window(128 * 1024 * 1024); // 128 Mbs
     config.enable_early_data();
-    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+    //config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
     Ok(config)
 }
