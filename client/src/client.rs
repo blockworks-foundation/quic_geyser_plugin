@@ -118,12 +118,7 @@ mod tests {
             std::thread::spawn(move || {
                 let config = ConfigQuicPlugin {
                     address: server_sock,
-                    quic_parameters: QuicParameters {
-                        max_number_of_streams_per_client: 10,
-                        recieve_window_size: 1_000_000,
-                        connection_timeout: 10,
-                        max_number_of_connections: 1,
-                    },
+                    quic_parameters: QuicParameters::default(),
                     compression_parameters: CompressionParameters {
                         compression_type: CompressionType::None,
                     },

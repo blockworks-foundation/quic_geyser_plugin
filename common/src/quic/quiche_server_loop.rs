@@ -39,7 +39,7 @@ struct DispatchingData {
 
 type DispachingConnections = Arc<Mutex<HashMap<ConnectionId<'static>, DispatchingData>>>;
 
-const MAX_MESSAGE_DEPILE_IN_LOOP: usize = 128 * 1024;
+const MAX_MESSAGE_DEPILE_IN_LOOP: usize = 16 * 1024;
 const ACCEPTABLE_PACING_DELAY: Duration = Duration::from_millis(100);
 
 struct Packet {

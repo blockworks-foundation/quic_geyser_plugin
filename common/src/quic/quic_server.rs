@@ -19,11 +19,7 @@ impl Debug for QuicServer {
 
 impl QuicServer {
     pub fn new(config: ConfigQuicPlugin) -> anyhow::Result<Self> {
-        let server_config = configure_server(
-            config.quic_parameters.max_number_of_streams_per_client,
-            config.quic_parameters.recieve_window_size,
-            config.quic_parameters.connection_timeout,
-        )?;
+        let server_config = configure_server(config.quic_parameters)?;
         let socket = config.address;
         let compression_type = config.compression_parameters.compression_type;
 

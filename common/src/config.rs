@@ -8,8 +8,9 @@ use crate::{
 };
 
 pub const DEFAULT_CONNECTION_TIMEOUT: u64 = 10;
-
 pub const DEFAULT_MAX_NB_CONNECTIONS: u64 = 10;
+pub const DEFAULT_MAX_ACK_DELAY: u64 = 250;
+pub const DEFAULT_ACK_EXPONENT: u64 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -49,12 +50,14 @@ impl ConfigQuicPlugin {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
 pub struct QuicParameters {
     pub max_number_of_streams_per_client: u64,
     pub recieve_window_size: u64,
     pub connection_timeout: u64,
     pub max_number_of_connections: u64,
+    pub max_ack_delay: u64,
+    pub ack_exponent: u64,
 }
 
 impl Default for QuicParameters {
@@ -64,6 +67,8 @@ impl Default for QuicParameters {
             recieve_window_size: DEFAULT_MAX_RECIEVE_WINDOW_SIZE, // 1 Mb
             connection_timeout: DEFAULT_CONNECTION_TIMEOUT,       // 10s
             max_number_of_connections: DEFAULT_MAX_NB_CONNECTIONS,
+            max_ack_delay: DEFAULT_MAX_ACK_DELAY,
+            ack_exponent: DEFAULT_ACK_EXPONENT,
         }
     }
 }

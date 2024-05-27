@@ -274,6 +274,7 @@ mod tests {
     use crate::{
         channel_message::{AccountData, ChannelMessage},
         compression::CompressionType,
+        config::QuicParameters,
         filters::Filter,
         message::Message,
         quic::{
@@ -362,7 +363,7 @@ mod tests {
         // server loop
         let (server_send_queue, rx_sent_queue) = mpsc::channel::<ChannelMessage>();
         let _server_loop_jh = std::thread::spawn(move || {
-            let config = configure_server(maximum_concurrent_streams, 20_000_000, 1).unwrap();
+            let config = configure_server(QuicParameters::default()).unwrap();
             if let Err(e) = server_loop(
                 config,
                 socket_addr,
