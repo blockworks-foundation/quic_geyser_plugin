@@ -1,12 +1,11 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
     ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
 };
 use quic_geyser_common::{
+    channel_message::{AccountData, ChannelMessage},
     plugin_error::QuicGeyserError,
-    quic::quic_server::{AccountData, ChannelMessage, QuicServer},
+    quic::quic_server::QuicServer,
     types::{
         block_meta::BlockMeta,
         slot_identifier::SlotIdentifier,
@@ -17,7 +16,6 @@ use solana_sdk::{
     account::Account, clock::Slot, commitment_config::CommitmentLevel, message::v0::Message,
     pubkey::Pubkey,
 };
-use tokio::runtime::Builder;
 
 use crate::config::Config;
 
@@ -32,25 +30,11 @@ impl GeyserPlugin for QuicGeyserPlugin {
     }
 
     fn on_load(&mut self, config_file: &str) -> PluginResult<()> {
-        solana_logger::setup_with_default("info");
         log::info!("loading quic_geyser plugin");
         let config = Config::load_from_file(config_file)?;
         log::info!("Quic plugin config correctly loaded");
-        let runtime = Builder::new_multi_thread()
-            .thread_name_fn(|| {
-                static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
-                let id = ATOMIC_ID.fetch_add(1, Ordering::Relaxed);
-                format!("solGeyserQuic{id:02}")
-            })
-            .enable_all()
-            .build()
-            .map_err(|error| {
-                let s = error.to_string();
-                log::error!("Runtime Error : {}", s);
-                GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
-            })?;
-
-        let quic_server = QuicServer::new(runtime, config.quic_plugin, 20_000).map_err(|_| {
+        solana_logger::setup_with_default(&config.quic_plugin.log_level);
+        let quic_server = QuicServer::new(config.quic_plugin).map_err(|_| {
             GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
         })?;
         self.quic_server = Some(quic_server);
@@ -71,6 +55,12 @@ impl GeyserPlugin for QuicGeyserPlugin {
         let Some(quic_server) = &self.quic_server else {
             return Ok(());
         };
+
+        if !quic_server.quic_plugin_config.allow_accounts
+            || (is_startup && !quic_server.quic_plugin_config.allow_accounts_at_startup)
+        {
+            return Ok(());
+        }
         let ReplicaAccountInfoVersions::V0_0_3(account_info) = account else {
             return Err(GeyserPluginError::AccountsUpdateError {
                 msg: "Unsupported account info version".to_string(),
@@ -84,6 +74,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
             rent_epoch: account_info.rent_epoch,
         };
         let pubkey: Pubkey = Pubkey::try_from(account_info.pubkey).expect("valid pubkey");
+
         quic_server
             .send_message(ChannelMessage::Account(
                 AccountData {
@@ -92,7 +83,6 @@ impl GeyserPlugin for QuicGeyserPlugin {
                     write_version: account_info.write_version,
                 },
                 slot,
-                is_startup,
             ))
             .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
         Ok(())

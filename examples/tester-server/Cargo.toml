@@ -8,19 +8,16 @@ authors = ["Godmode Galactus"]
 
 [dependencies]
 
-tokio = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"]  }
 serde = { workspace = true }
 solana-sdk = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
-futures = { workspace = true }
 bincode = { workspace = true }
 itertools = {workspace = true}
+tracing-subscriber = { workspace = true }
 
 rand = "0.8.5"
 
-quic-geyser-client = { workspace = true }
 quic-geyser-common = { workspace = true }
-quic-geyser-plugin = { workspace = true }

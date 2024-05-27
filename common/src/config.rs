@@ -2,14 +2,21 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{compression::CompressionType, quic::configure_client::DEFAULT_MAX_STREAMS};
+use crate::{
+    compression::CompressionType,
+    quic::configure_client::{DEFAULT_MAX_RECIEVE_WINDOW_SIZE, DEFAULT_MAX_STREAMS},
+};
 
-pub const DEFAULT_WINDOW_SIZE: u32 = 1_000_000;
-pub const DEFAULT_CONNECTION_TIMEOUT: u32 = 10;
+pub const DEFAULT_CONNECTION_TIMEOUT: u64 = 10;
+pub const DEFAULT_MAX_NB_CONNECTIONS: u64 = 10;
+pub const DEFAULT_MAX_ACK_DELAY: u64 = 250;
+pub const DEFAULT_ACK_EXPONENT: u64 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigQuicPlugin {
+    #[serde(default = "ConfigQuicPlugin::default_log_level")]
+    pub log_level: String,
     /// Address of Grpc service.
     #[serde(default = "ConfigQuicPlugin::default_address")]
     pub address: SocketAddr,
@@ -19,6 +26,10 @@ pub struct ConfigQuicPlugin {
     pub compression_parameters: CompressionParameters,
     #[serde(default = "ConfigQuicPlugin::default_number_of_retries")]
     pub number_of_retries: u64,
+    #[serde(default = "ConfigQuicPlugin::default_allow_accounts")]
+    pub allow_accounts: bool,
+    #[serde(default)]
+    pub allow_accounts_at_startup: bool,
 }
 
 impl ConfigQuicPlugin {
@@ -29,21 +40,35 @@ impl ConfigQuicPlugin {
     fn default_number_of_retries() -> u64 {
         100
     }
+
+    fn default_log_level() -> String {
+        "info".to_string()
+    }
+
+    fn default_allow_accounts() -> bool {
+        true
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
 pub struct QuicParameters {
-    pub max_number_of_streams_per_client: u32,
-    pub recieve_window_size: u32,
-    pub connection_timeout: u32,
+    pub max_number_of_streams_per_client: u64,
+    pub recieve_window_size: u64,
+    pub connection_timeout: u64,
+    pub max_number_of_connections: u64,
+    pub max_ack_delay: u64,
+    pub ack_exponent: u64,
 }
 
 impl Default for QuicParameters {
     fn default() -> Self {
         Self {
             max_number_of_streams_per_client: DEFAULT_MAX_STREAMS,
-            recieve_window_size: DEFAULT_WINDOW_SIZE, // 1 Mb
-            connection_timeout: DEFAULT_CONNECTION_TIMEOUT, // 10s
+            recieve_window_size: DEFAULT_MAX_RECIEVE_WINDOW_SIZE, // 1 Mb
+            connection_timeout: DEFAULT_CONNECTION_TIMEOUT,       // 10s
+            max_number_of_connections: DEFAULT_MAX_NB_CONNECTIONS,
+            max_ack_delay: DEFAULT_MAX_ACK_DELAY,
+            ack_exponent: DEFAULT_ACK_EXPONENT,
         }
     }
 }

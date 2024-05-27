@@ -1,42 +1,51 @@
-use std::{sync::Arc, time::Duration};
+use boring::ssl::SslMethod;
 
-use quinn::{IdleTimeout, ServerConfig};
+use crate::config::QuicParameters;
 
-use super::skip_verification::ServerSkipClientVerification;
+pub const ALPN_GEYSER_PROTOCOL_ID: &[u8] = b"geyser";
+pub const MAX_DATAGRAM_SIZE: usize = 65527; // MAX: 65527
 
-pub const ALPN_GEYSER_PROTOCOL_ID: &[u8] = b"quic_geyser_plugin";
+pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche::Config> {
+    let max_concurrent_streams = quic_parameter.max_number_of_streams_per_client;
+    let recieve_window_size = quic_parameter.recieve_window_size;
+    let connection_timeout = quic_parameter.connection_timeout;
+    let max_number_of_connections = quic_parameter.max_number_of_connections;
+    let maximum_ack_delay = quic_parameter.max_ack_delay;
+    let ack_exponent = quic_parameter.ack_exponent;
 
-pub fn configure_server(
-    max_concurrent_streams: u32,
-    recieve_window_size: u32,
-    connection_timeout: u64,
-) -> anyhow::Result<ServerConfig> {
-    let cert = rcgen::generate_simple_self_signed(vec!["quic_geyser_server".into()]).unwrap();
-    let key = rustls::PrivateKey(cert.serialize_private_key_der());
-    let cert = rustls::Certificate(cert.serialize_der().unwrap());
+    let cert = rcgen::generate_simple_self_signed(vec!["quic_geyser".into()]).unwrap();
 
-    let mut server_tls_config = rustls::ServerConfig::builder()
-        .with_safe_defaults()
-        .with_client_cert_verifier(ServerSkipClientVerification::new())
-        .with_single_cert(vec![cert], key)?;
-    server_tls_config.alpn_protocols = vec![ALPN_GEYSER_PROTOCOL_ID.to_vec()];
+    let mut boring_ssl_context = boring::ssl::SslContextBuilder::new(SslMethod::tls())?;
+    let x509 = boring::x509::X509::from_der(&cert.serialize_der()?)?;
 
-    let mut server_config = ServerConfig::with_crypto(Arc::new(server_tls_config));
-    server_config.use_retry(true);
-    let config = Arc::get_mut(&mut server_config.transport).unwrap();
+    let private_key_der = cert.serialize_private_key_der();
+    let pkey = boring::pkey::PKey::private_key_from_der(&private_key_der)?;
+    boring_ssl_context.set_certificate(&x509)?;
+    boring_ssl_context.set_private_key(&pkey)?;
 
-    config.max_concurrent_uni_streams((max_concurrent_streams).into());
-    let recv_size = recieve_window_size.into();
-    config.stream_receive_window(recv_size);
-    config.receive_window(recv_size);
+    let mut config =
+        quiche::Config::with_boring_ssl_ctx_builder(quiche::PROTOCOL_VERSION, boring_ssl_context)
+            .expect("Should create config struct");
 
-    let timeout = Duration::from_secs(connection_timeout);
-    let timeout = IdleTimeout::try_from(timeout).unwrap();
-    config.max_idle_timeout(Some(timeout));
+    config
+        .set_application_protos(&[ALPN_GEYSER_PROTOCOL_ID])
+        .unwrap();
 
-    // disable bidi & datagrams
-    config.max_concurrent_bidi_streams(0u32.into());
-    config.datagram_receive_buffer_size(None);
-
-    Ok(server_config)
+    config.set_max_idle_timeout(connection_timeout * 1000);
+    config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE);
+    config.set_max_send_udp_payload_size(MAX_DATAGRAM_SIZE);
+    config.set_initial_max_data(recieve_window_size);
+    config.set_initial_max_stream_data_bidi_local(2048);
+    config.set_initial_max_stream_data_bidi_remote(2048);
+    config.set_initial_max_stream_data_uni(recieve_window_size);
+    config.set_initial_max_streams_bidi(max_concurrent_streams);
+    config.set_initial_max_streams_uni(max_concurrent_streams);
+    config.set_disable_active_migration(true);
+    config.set_max_connection_window(128 * 1024 * 1024); // 128 Mbs
+    config.enable_early_data();
+    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+    config.set_active_connection_id_limit(max_number_of_connections);
+    config.set_max_ack_delay(maximum_ack_delay);
+    config.set_ack_delay_exponent(ack_exponent);
+    Ok(config)
 }

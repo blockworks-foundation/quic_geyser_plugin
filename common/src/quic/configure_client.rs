@@ -1,69 +1,30 @@
-use std::{net::UdpSocket, sync::Arc, time::Duration};
+use crate::quic::configure_server::ALPN_GEYSER_PROTOCOL_ID;
 
-use quinn::{
-    ClientConfig, Endpoint, EndpointConfig, IdleTimeout, TokioRuntime, TransportConfig, VarInt,
-};
+use super::configure_server::MAX_DATAGRAM_SIZE;
 
-use crate::quic::{
-    configure_server::ALPN_GEYSER_PROTOCOL_ID, skip_verification::ClientSkipServerVerification,
-};
+pub const DEFAULT_MAX_STREAMS: u64 = 64 * 1024;
+pub const DEFAULT_MAX_RECIEVE_WINDOW_SIZE: u64 = 1_000_000; // 64 MBs
 
-pub const DEFAULT_MAX_STREAMS: u32 = 4096;
-pub const DEFAULT_MAX_SLOT_BLOCKMETA_STREAMS: u32 = 4;
-pub const DEFAULT_MAX_TRANSACTION_STREAMS: u32 = 32;
-pub const DEFAULT_MAX_ACCOUNT_STREAMS: u32 =
-    DEFAULT_MAX_STREAMS - DEFAULT_MAX_SLOT_BLOCKMETA_STREAMS - DEFAULT_MAX_TRANSACTION_STREAMS;
+pub fn configure_client(
+    maximum_concurrent_streams: u64,
+    recieve_window_size: u64,
+    timeout_in_seconds: u64,
+) -> anyhow::Result<quiche::Config> {
+    let mut config = quiche::Config::new(quiche::PROTOCOL_VERSION).unwrap();
+    config
+        .set_application_protos(&[ALPN_GEYSER_PROTOCOL_ID])
+        .unwrap();
 
-pub fn create_client_endpoint(maximum_streams: u32) -> Endpoint {
-    const DATAGRAM_RECEIVE_BUFFER_SIZE: usize = 64 * 1024 * 1024;
-    const DATAGRAM_SEND_BUFFER_SIZE: usize = 64 * 1024 * 1024;
-    const INITIAL_MAXIMUM_TRANSMISSION_UNIT: u16 = MINIMUM_MAXIMUM_TRANSMISSION_UNIT;
-    const MINIMUM_MAXIMUM_TRANSMISSION_UNIT: u16 = 2000;
-
-    let mut endpoint = {
-        let client_socket = UdpSocket::bind("0.0.0.0:0").expect("Client socket should be binded");
-        let mut config = EndpointConfig::default();
-        config
-            .max_udp_payload_size(MINIMUM_MAXIMUM_TRANSMISSION_UNIT)
-            .expect("Should set max MTU");
-        quinn::Endpoint::new(config, None, client_socket, Arc::new(TokioRuntime))
-            .expect("create_endpoint quinn::Endpoint::new")
-    };
-
-    let cert = rcgen::generate_simple_self_signed(vec!["quic_geyser_client".into()]).unwrap();
-    let key = rustls::PrivateKey(cert.serialize_private_key_der());
-    let cert = rustls::Certificate(cert.serialize_der().unwrap());
-
-    let mut crypto = rustls::ClientConfig::builder()
-        .with_safe_defaults()
-        .with_custom_certificate_verifier(Arc::new(ClientSkipServerVerification {}))
-        .with_client_auth_cert(vec![cert], key)
-        .expect("Should create client config");
-
-    crypto.enable_early_data = true;
-    crypto.alpn_protocols = vec![ALPN_GEYSER_PROTOCOL_ID.to_vec()];
-
-    let mut config = ClientConfig::new(Arc::new(crypto));
-    let mut transport_config = TransportConfig::default();
-
-    let timeout = IdleTimeout::try_from(Duration::from_secs(600)).unwrap();
-    transport_config.max_idle_timeout(Some(timeout));
-    transport_config.keep_alive_interval(Some(Duration::from_secs(1)));
-    transport_config.datagram_receive_buffer_size(Some(DATAGRAM_RECEIVE_BUFFER_SIZE));
-    transport_config.datagram_send_buffer_size(DATAGRAM_SEND_BUFFER_SIZE);
-    transport_config.initial_mtu(INITIAL_MAXIMUM_TRANSMISSION_UNIT);
-    transport_config.max_concurrent_bidi_streams(VarInt::from_u32(0));
-    transport_config.max_concurrent_uni_streams(VarInt::from(maximum_streams));
-    transport_config.min_mtu(MINIMUM_MAXIMUM_TRANSMISSION_UNIT);
-    transport_config.mtu_discovery_config(None);
-    transport_config.enable_segmentation_offload(false);
-    config.transport_config(Arc::new(transport_config));
-
-    endpoint.set_default_client_config(config);
-
-    endpoint
-}
-
-pub async fn configure_client(maximum_concurrent_streams: u32) -> anyhow::Result<Endpoint> {
-    Ok(create_client_endpoint(maximum_concurrent_streams))
+    config.set_max_idle_timeout(timeout_in_seconds * 1000);
+    config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE);
+    config.set_max_send_udp_payload_size(MAX_DATAGRAM_SIZE);
+    config.set_initial_max_data(recieve_window_size);
+    config.set_initial_max_stream_data_bidi_local(recieve_window_size);
+    config.set_initial_max_stream_data_bidi_remote(recieve_window_size);
+    config.set_initial_max_stream_data_uni(recieve_window_size);
+    config.set_initial_max_streams_bidi(maximum_concurrent_streams);
+    config.set_initial_max_streams_uni(maximum_concurrent_streams);
+    config.set_disable_active_migration(true);
+    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+    Ok(config)
 }

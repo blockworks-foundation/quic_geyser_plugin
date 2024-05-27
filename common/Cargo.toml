@@ -10,13 +10,18 @@ solana-transaction-status = { workspace = true }
 serde = { workspace = true }
 bincode = { workspace = true }
 lz4 = { workspace = true }
-quinn = { workspace = true }
-rustls = { workspace = true, default-features = false }
+quiche = { workspace = true, features = ["boringssl-boring-crate"] }
+boring = { workspace = true }
 rcgen = { workspace = true }
-pkcs8 = { workspace = true }
 anyhow = { workspace = true }
-tokio = { workspace = true }
 log = { workspace = true }
 thiserror = {workspace = true}
+itertools = { workspace = true } 
+ring = {workspace = true}
+
+mio = { workspace = true }
+mio_channel = { workspace = true }
 
 [dev-dependencies]
+rand = { workspace = true }
+tracing-subscriber = { workspace = true }

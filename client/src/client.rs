@@ -1,175 +1,177 @@
-use std::{net::SocketAddr, str::FromStr};
-
-use async_stream::stream;
-use futures::Stream;
+use quic_geyser_common::filters::Filter;
 use quic_geyser_common::message::Message;
 use quic_geyser_common::quic::configure_client::configure_client;
-use quic_geyser_common::quic::quinn_reciever::recv_message;
-use quic_geyser_common::quic::quinn_sender::send_message;
-use quic_geyser_common::{filters::Filter, types::connections_parameters::ConnectionParameters};
-use quinn::{Connection, ConnectionError};
+use quic_geyser_common::quic::quiche_client_loop::client_loop;
+use quic_geyser_common::types::connections_parameters::ConnectionParameters;
+use std::net::SocketAddr;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 pub struct Client {
-    pub address: String,
-    connection: Connection,
+    is_connected: Arc<AtomicBool>,
+    filters_sender: mio_channel::Sender<Message>,
 }
 
 impl Client {
-    pub async fn new(
+    pub fn new(
         server_address: String,
         connection_parameters: ConnectionParameters,
-    ) -> anyhow::Result<Client> {
-        let endpoint = configure_client(connection_parameters.max_number_of_streams).await?;
-        let socket_addr = SocketAddr::from_str(&server_address)?;
-        let connecting = endpoint.connect(socket_addr, "quic_geyser_client")?;
-        let connection = connecting.await?;
-        let send_stream = connection.open_uni().await?;
-        send_message(
-            send_stream,
-            &Message::ConnectionParameters(connection_parameters),
-        )
-        .await?;
+    ) -> anyhow::Result<(Client, std::sync::mpsc::Receiver<Message>)> {
+        let config = configure_client(
+            connection_parameters.max_number_of_streams,
+            connection_parameters.recieve_window_size,
+            connection_parameters.timeout_in_seconds,
+        )?;
+        let server_address: SocketAddr = server_address.parse()?;
+        let socket_addr: SocketAddr = "0.0.0.0:0"
+            .parse()
+            .expect("Socket address should be returned");
+        let is_connected = Arc::new(AtomicBool::new(false));
+        let (filters_sender, rx_sent_queue) = mio_channel::channel();
+        let (sx_recv_queue, client_rx_queue) = std::sync::mpsc::channel();
 
-        Ok(Client {
-            address: server_address,
-            connection,
-        })
+        let is_connected_client = is_connected.clone();
+        let _client_loop_jh = std::thread::spawn(move || {
+            if let Err(e) = client_loop(
+                config,
+                socket_addr,
+                server_address,
+                rx_sent_queue,
+                sx_recv_queue,
+                is_connected_client.clone(),
+            ) {
+                log::error!("client stopped with error {e}");
+            }
+            is_connected_client.store(false, std::sync::atomic::Ordering::Relaxed);
+        });
+        Ok((
+            Client {
+                is_connected,
+                filters_sender,
+            },
+            client_rx_queue,
+        ))
     }
 
-    pub async fn subscribe(&self, filters: Vec<Filter>) -> anyhow::Result<()> {
-        let send_stream = self.connection.open_uni().await?;
-        send_message(send_stream, &Message::Filters(filters)).await?;
+    pub fn subscribe(&self, filters: Vec<Filter>) -> anyhow::Result<()> {
+        let message = Message::Filters(filters);
+        self.filters_sender.send(message)?;
         Ok(())
     }
 
-    pub fn create_stream(&self) -> impl Stream<Item = Message> {
-        let connection = self.connection.clone();
-        let (sender, mut reciever) = tokio::sync::mpsc::unbounded_channel::<Message>();
-        tokio::spawn(async move {
-            loop {
-                let stream = connection.accept_uni().await;
-                match stream {
-                    Ok(recv_stream) => {
-                        let sender = sender.clone();
-                        tokio::spawn(async move {
-                            let message = recv_message(recv_stream, 10).await;
-                            match message {
-                                Ok(message) => {
-                                    let _ = sender.send(message);
-                                }
-                                Err(e) => {
-                                    log::error!("Error getting message {}", e);
-                                }
-                            }
-                        });
-                    }
-                    Err(e) => match &e {
-                        ConnectionError::ConnectionClosed(_)
-                        | ConnectionError::ApplicationClosed(_)
-                        | ConnectionError::LocallyClosed => {
-                            break;
-                        }
-                        _ => {
-                            log::error!("Got {} while listing to the connection", e);
-                        }
-                    },
-                }
-            }
-        });
-        stream! {
-            while let Some(message) = reciever.recv().await {
-                    yield message;
-            }
-        }
+    pub fn is_connected(&self) -> bool {
+        self.is_connected.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{net::UdpSocket, sync::Arc};
-
-    use futures::StreamExt;
+    use itertools::Itertools;
     use quic_geyser_common::{
+        channel_message::AccountData,
+        compression::CompressionType,
+        config::{CompressionParameters, ConfigQuicPlugin, QuicParameters},
         filters::Filter,
         message::Message,
-        quic::{configure_server::configure_server, connection_manager::ConnectionManager},
-        types::{account::Account, connections_parameters::ConnectionParameters},
+        quic::quic_server::QuicServer,
+        types::{
+            account::Account, connections_parameters::ConnectionParameters,
+            slot_identifier::SlotIdentifier,
+        },
     };
-    use quinn::{Endpoint, EndpointConfig, TokioRuntime};
-    use tokio::{pin, sync::Notify};
+    use solana_sdk::pubkey::Pubkey;
+    use std::{net::SocketAddr, thread::sleep, time::Duration};
+
+    pub fn get_account_for_test(slot: u64, data_size: usize) -> Account {
+        Account {
+            slot_identifier: SlotIdentifier { slot },
+            pubkey: Pubkey::new_unique(),
+            owner: Pubkey::new_unique(),
+            write_version: 0,
+            lamports: 12345,
+            rent_epoch: u64::MAX,
+            executable: false,
+            data: (0..data_size).map(|_| rand::random::<u8>()).collect_vec(),
+            compression_type: CompressionType::None,
+            data_length: data_size as u64,
+        }
+    }
 
     use crate::client::Client;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    pub async fn test_client() {
-        let config = configure_server(1, 100000, 1).unwrap();
+    #[test]
+    pub fn test_client() {
+        tracing_subscriber::fmt::init();
+        let server_sock: SocketAddr = "0.0.0.0:20000".parse().unwrap();
+        let url = format!("127.0.0.1:{}", server_sock.port());
 
-        let sock = UdpSocket::bind("0.0.0.0:0").unwrap();
-        let port = sock.local_addr().unwrap().port();
-        let url = format!("127.0.0.1:{}", port);
-        let notify_server_start = Arc::new(Notify::new());
-        let notify_subscription = Arc::new(Notify::new());
-
-        let msg_acc_1 = Message::AccountMsg(Account::get_account_for_test(0, 2));
-        let msg_acc_2 = Message::AccountMsg(Account::get_account_for_test(1, 20));
-        let msg_acc_3 = Message::AccountMsg(Account::get_account_for_test(2, 100));
-        let msg_acc_4 = Message::AccountMsg(Account::get_account_for_test(3, 1000));
-        let msg_acc_5 = Message::AccountMsg(Account::get_account_for_test(4, 10000));
+        let msg_acc_1 = Message::AccountMsg(get_account_for_test(0, 2));
+        let msg_acc_2 = Message::AccountMsg(get_account_for_test(1, 20));
+        let msg_acc_3 = Message::AccountMsg(get_account_for_test(2, 100));
+        let msg_acc_4 = Message::AccountMsg(get_account_for_test(3, 1_000));
+        let msg_acc_5 = Message::AccountMsg(get_account_for_test(4, 10_000));
         let msgs = [msg_acc_1, msg_acc_2, msg_acc_3, msg_acc_4, msg_acc_5];
 
-        {
+        let jh = {
             let msgs = msgs.clone();
-            let notify_server_start = notify_server_start.clone();
-            let notify_subscription = notify_subscription.clone();
-            tokio::spawn(async move {
-                let endpoint = Endpoint::new(
-                    EndpointConfig::default(),
-                    Some(config),
-                    sock,
-                    Arc::new(TokioRuntime),
-                )
-                .unwrap();
-
-                let (connection_manager, _jh) = ConnectionManager::new(endpoint, 10);
-                notify_server_start.notify_one();
-                notify_subscription.notified().await;
+            let server_sock = server_sock.clone();
+            std::thread::spawn(move || {
+                let config = ConfigQuicPlugin {
+                    address: server_sock,
+                    quic_parameters: QuicParameters::default(),
+                    compression_parameters: CompressionParameters {
+                        compression_type: CompressionType::None,
+                    },
+                    number_of_retries: 100,
+                    log_level: "debug".to_string(),
+                    allow_accounts: true,
+                    allow_accounts_at_startup: false,
+                };
+                let quic_server = QuicServer::new(config).unwrap();
+                // wait for client to connect and subscribe
+                sleep(Duration::from_secs(2));
                 for msg in msgs {
-                    connection_manager.dispatch(msg, 10).await;
+                    let Message::AccountMsg(account) = msg else {
+                        panic!("should never happen");
+                    };
+                    quic_server
+                        .send_message(
+                            quic_geyser_common::channel_message::ChannelMessage::Account(
+                                AccountData {
+                                    pubkey: account.pubkey,
+                                    account: account.solana_account(),
+                                    write_version: account.write_version,
+                                },
+                                account.slot_identifier.slot,
+                            ),
+                        )
+                        .unwrap();
                 }
-            });
-        }
+                sleep(Duration::from_secs(1));
+            })
+        };
+        // wait for server to start
+        sleep(Duration::from_secs(1));
 
-        notify_server_start.notified().await;
         // server started
-
-        let client = Client::new(
+        let (client, reciever) = Client::new(
             url,
             ConnectionParameters {
-                max_number_of_streams: 3,
-                streams_for_slot_data: 1,
-                streams_for_transactions: 1,
+                max_number_of_streams: 10,
+                recieve_window_size: 1_000_000,
+                timeout_in_seconds: 10,
             },
         )
-        .await
         .unwrap();
-        client.subscribe(vec![Filter::AccountsAll]).await.unwrap();
+        client.subscribe(vec![Filter::AccountsAll]).unwrap();
 
-        notify_subscription.notify_one();
-
-        let stream = client.create_stream();
-        pin!(stream);
-        for _ in 0..5 {
-            let msg = stream.next().await.unwrap();
-            match &msg {
-                Message::AccountMsg(account) => {
-                    let index = account.slot_identifier.slot as usize;
-                    let sent_message = &msgs[index];
-                    assert_eq!(*sent_message, msg);
-                }
-                _ => {
-                    panic!("should only get account messages")
-                }
-            }
+        let mut cnt = 0;
+        for message_sent in msgs {
+            let msg = reciever.recv().unwrap();
+            log::info!("got message : {}", cnt);
+            cnt += 1;
+            assert_eq!(message_sent, msg);
         }
+        jh.join().unwrap();
     }
 }

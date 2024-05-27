@@ -9,7 +9,7 @@ pub struct Args {
     #[clap(short, long, default_value_t = 20_000)]
     pub accounts_per_second: u32,
 
-    #[clap(short = 'l', long, default_value_t = 1_000_000)]
+    #[clap(short = 'l', long, default_value_t = 200)]
     pub account_data_size: u32,
 
     #[clap(short, long, default_value_t = 1_000)]

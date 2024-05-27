@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use solana_sdk::{account::Account as SolanaAccount, clock::Slot, pubkey::Pubkey};
+use solana_sdk::{account::Account as SolanaAccount, pubkey::Pubkey};
 
 use crate::compression::CompressionType;
 
@@ -21,21 +21,6 @@ pub struct Account {
 }
 
 impl Account {
-    pub fn get_account_for_test(slot: Slot, data_size: usize) -> Self {
-        Account {
-            slot_identifier: SlotIdentifier { slot },
-            pubkey: Pubkey::new_unique(),
-            owner: Pubkey::new_unique(),
-            write_version: 0,
-            lamports: 12345,
-            rent_epoch: u64::MAX,
-            executable: false,
-            data: vec![178; data_size],
-            compression_type: CompressionType::None,
-            data_length: data_size as u64,
-        }
-    }
-
     pub fn new(
         pubkey: Pubkey,
         solana_account: SolanaAccount,
@@ -45,22 +30,26 @@ impl Account {
     ) -> Self {
         let data_length = solana_account.data.len() as u64;
 
-        let data = match compression_type {
-            CompressionType::None => solana_account.data,
-            CompressionType::Lz4Fast(speed) => lz4::block::compress(
-                &solana_account.data,
-                Some(lz4::block::CompressionMode::FAST(speed as i32)),
-                true,
-            )
-            .expect("Compression should work"),
-            CompressionType::Lz4(compression) => lz4::block::compress(
-                &solana_account.data,
-                Some(lz4::block::CompressionMode::HIGHCOMPRESSION(
-                    compression as i32,
-                )),
-                true,
-            )
-            .expect("compression should work"),
+        let data = if !solana_account.data.is_empty() {
+            match compression_type {
+                CompressionType::None => solana_account.data,
+                CompressionType::Lz4Fast(speed) => lz4::block::compress(
+                    &solana_account.data,
+                    Some(lz4::block::CompressionMode::FAST(speed as i32)),
+                    true,
+                )
+                .expect("Compression should work"),
+                CompressionType::Lz4(compression) => lz4::block::compress(
+                    &solana_account.data,
+                    Some(lz4::block::CompressionMode::HIGHCOMPRESSION(
+                        compression as i32,
+                    )),
+                    true,
+                )
+                .expect("compression should work"),
+            }
+        } else {
+            vec![]
         };
         Account {
             slot_identifier,
@@ -86,8 +75,12 @@ impl Account {
                 rent_epoch: self.rent_epoch,
             },
             CompressionType::Lz4(_) | CompressionType::Lz4Fast(_) => {
-                let uncompressed_data =
-                    lz4::block::decompress(&self.data, None).expect("should uncompress");
+                let uncompressed_data = if self.data_length > 0 {
+                    lz4::block::decompress(&self.data, None).expect("should uncompress")
+                } else {
+                    vec![]
+                };
+
                 SolanaAccount {
                     lamports: self.lamports,
                     data: uncompressed_data,

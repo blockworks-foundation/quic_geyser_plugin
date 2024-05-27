@@ -8,37 +8,31 @@ use clap::Parser;
 use cli::Args;
 use itertools::Itertools;
 use quic_geyser_common::{
+    channel_message::{AccountData, ChannelMessage},
     config::{CompressionParameters, ConfigQuicPlugin, QuicParameters},
-    quic::quic_server::{AccountData, ChannelMessage, QuicServer},
+    quic::quic_server::QuicServer,
 };
 use rand::{thread_rng, Rng};
 use solana_sdk::{account::Account, pubkey::Pubkey};
-use tokio::runtime::Builder;
 
 pub mod cli;
 
-pub fn main() -> anyhow::Result<()> {
+pub fn main() {
+    tracing_subscriber::fmt::init();
     let args = Args::parse();
-
-    let runtime = Builder::new_multi_thread()
-        .thread_name_fn(|| "solGeyserQuic".to_string())
-        .enable_all()
-        .build()
-        .map_err(|error| {
-            let s = error.to_string();
-            log::error!("Runtime Error : {}", s);
-            error
-        })?;
 
     let config = ConfigQuicPlugin {
         address: SocketAddr::from_str(format!("0.0.0.0:{}", args.port).as_str()).unwrap(),
+        log_level: "info".to_string(),
         quic_parameters: QuicParameters::default(),
         compression_parameters: CompressionParameters {
             compression_type: quic_geyser_common::compression::CompressionType::None,
         },
         number_of_retries: 100,
+        allow_accounts: true,
+        allow_accounts_at_startup: false,
     };
-    let quic_server = QuicServer::new(runtime, config, args.max_lagging).unwrap();
+    let quic_server = QuicServer::new(config).unwrap();
 
     let mut instant = Instant::now();
     // to avoid errors
@@ -51,7 +45,10 @@ pub fn main() -> anyhow::Result<()> {
         .map(|_| rand.gen::<u8>())
         .collect_vec();
     loop {
-        std::thread::sleep(Duration::from_secs(1) - Instant::now().duration_since(instant));
+        let diff = Instant::now().duration_since(instant);
+        if diff < Duration::from_secs(1) {
+            std::thread::sleep(Duration::from_secs(1) - diff);
+        }
         instant = Instant::now();
         slot += 1;
         for _ in 0..args.accounts_per_second {
@@ -67,8 +64,8 @@ pub fn main() -> anyhow::Result<()> {
                 },
                 write_version,
             };
-            let channel_message = ChannelMessage::Account(account, slot, false);
-            quic_server.send_message(channel_message)?;
+            let channel_message = ChannelMessage::Account(account, slot);
+            quic_server.send_message(channel_message).unwrap();
         }
     }
 }
