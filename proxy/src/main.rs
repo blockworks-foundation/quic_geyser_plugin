@@ -2,7 +2,7 @@ use std::{net::SocketAddr, str::FromStr};
 
 use clap::Parser;
 use cli::Args;
-use quic_geyser_client::client::Client;
+use quic_geyser_client::blocking::client::Client;
 use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
     config::{CompressionParameters, ConfigQuicPlugin, QuicParameters},

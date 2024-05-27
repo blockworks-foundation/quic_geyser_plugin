@@ -6,7 +6,7 @@ use std::{
 
 use clap::Parser;
 use cli::Args;
-use quic_geyser_client::client::Client;
+use quic_geyser_client::blocking::client::Client;
 use quic_geyser_common::{
     filters::Filter, quic::configure_client::DEFAULT_MAX_RECIEVE_WINDOW_SIZE,
     types::connections_parameters::ConnectionParameters,

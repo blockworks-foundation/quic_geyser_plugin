@@ -2413,10 +2413,10 @@ dependencies = [
  "anyhow",
  "itertools",
  "log",
- "mio_channel",
  "quic-geyser-common",
  "rand 0.8.5",
  "solana-sdk",
+ "tokio",
  "tracing-subscriber",
 ]
 

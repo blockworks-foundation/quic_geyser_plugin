@@ -10,7 +10,7 @@ edition = "2021"
 solana-sdk = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
-mio_channel = { workspace = true }
+tokio = "1.28.2"
 
 quic-geyser-common = { workspace = true }
 
