@@ -28,8 +28,6 @@ serde = "1.0.201"
 clap = "=4.2.4"
 serde_json = "1.0.96"
 bincode = "=1.3.3"
-bs58 = "0.4.0"
-base64 = "0.21.0"
 thiserror = "1.0.40"
 bytes = "1.4.0"
 anyhow = "1.0.70"
@@ -44,8 +42,7 @@ lz4 = "1.24.0"
 mio = "0.8.11"
 mio_channel = "0.1.3"
 
-quiche = { version = "=0.21.0", features = ["boringssl-vendored"] }
-boring = "4.6.0"
+quiche = "=0.21.0"
 ring = "0.17.8"
 
 cargo-lock = "9.0.0"

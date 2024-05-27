@@ -10,9 +10,7 @@ solana-transaction-status = { workspace = true }
 serde = { workspace = true }
 bincode = { workspace = true }
 lz4 = { workspace = true }
-quiche = { workspace = true, features = ["boringssl-boring-crate"] }
-boring = { workspace = true }
-rcgen = { workspace = true }
+quiche = { workspace = true, features = ["boringssl-vendored"] }
 anyhow = { workspace = true }
 log = { workspace = true }
 thiserror = {workspace = true}
@@ -21,6 +19,8 @@ ring = {workspace = true}
 
 mio = { workspace = true }
 mio_channel = { workspace = true }
+
+native-tls = "0.2.11"
 
 [dev-dependencies]
 rand = { workspace = true }

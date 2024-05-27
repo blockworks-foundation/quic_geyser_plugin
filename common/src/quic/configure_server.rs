@@ -1,5 +1,3 @@
-use boring::ssl::SslMethod;
-
 use crate::config::QuicParameters;
 
 pub const ALPN_GEYSER_PROTOCOL_ID: &[u8] = b"geyser";
@@ -13,18 +11,8 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     let maximum_ack_delay = quic_parameter.max_ack_delay;
     let ack_exponent = quic_parameter.ack_exponent;
 
-    let cert = rcgen::generate_simple_self_signed(vec!["quic_geyser".into()]).unwrap();
-
-    let mut boring_ssl_context = boring::ssl::SslContextBuilder::new(SslMethod::tls())?;
-    let x509 = boring::x509::X509::from_der(&cert.serialize_der()?)?;
-
-    let private_key_der = cert.serialize_private_key_der();
-    let pkey = boring::pkey::PKey::private_key_from_der(&private_key_der)?;
-    boring_ssl_context.set_certificate(&x509)?;
-    boring_ssl_context.set_private_key(&pkey)?;
-
     let mut config =
-        quiche::Config::with_boring_ssl_ctx_builder(quiche::PROTOCOL_VERSION, boring_ssl_context)
+        quiche::Config::new(quiche::PROTOCOL_VERSION)
             .expect("Should create config struct");
 
     config
