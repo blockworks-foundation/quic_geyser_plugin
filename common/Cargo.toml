@@ -20,8 +20,6 @@ ring = {workspace = true}
 mio = { workspace = true }
 mio_channel = { workspace = true }
 
-native-tls = "0.2.11"
-
 [dev-dependencies]
 rand = { workspace = true }
 tracing-subscriber = { workspace = true }
