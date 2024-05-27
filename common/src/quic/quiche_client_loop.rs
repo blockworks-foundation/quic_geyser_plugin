@@ -20,7 +20,7 @@ pub fn client_loop(
     mut config: quiche::Config,
     socket_addr: SocketAddr,
     server_address: SocketAddr,
-    message_send_queue: mio_channel::Receiver<Message>,
+    message_send_queue: std::sync::mpsc::Receiver<Message>,
     message_recv_queue: std::sync::mpsc::Sender<Message>,
     is_connected: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
@@ -125,7 +125,7 @@ pub fn create_quiche_client_thread(
     connection: quiche::Connection,
     mut receiver: mio_channel::Receiver<(quiche::RecvInfo, Vec<u8>)>,
     sender: mio_channel::Sender<(quiche::SendInfo, Vec<u8>)>,
-    message_send_queue: mio_channel::Receiver<Message>,
+    message_send_queue: std::sync::mpsc::Receiver<Message>,
     message_recv_queue: std::sync::mpsc::Sender<Message>,
     is_connected: Arc<AtomicBool>,
 ) {
@@ -210,18 +210,33 @@ pub fn create_quiche_client_thread(
                     }
                 }
 
-                // channel events
-                if let Ok(message_to_send) = message_send_queue.try_recv() {
-                    current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
-                    let binary = bincode::serialize(&message_to_send)
-                        .expect("Message should be serializable");
-                    if let Err(e) = send_message(
-                        &mut connection,
-                        &mut partial_responses,
-                        current_stream_id,
-                        &binary,
-                    ) {
-                        log::error!("Sending failed with error {e:?}");
+                loop {
+                    match message_send_queue.try_recv() {
+                        Ok(message_to_send) => {
+                            current_stream_id =
+                                get_next_unidi(current_stream_id, false, maximum_streams);
+                            let binary = bincode::serialize(&message_to_send)
+                                .expect("Message should be serializable");
+                            if let Err(e) = send_message(
+                                &mut connection,
+                                &mut partial_responses,
+                                current_stream_id,
+                                &binary,
+                            ) {
+                                log::error!("Sending failed with error {e:?}");
+                            }
+                        }
+                        Err(e) => {
+                            match e {
+                                std::sync::mpsc::TryRecvError::Empty => {
+                                    // no more new messages
+                                    break;
+                                }
+                                std::sync::mpsc::TryRecvError::Disconnected => {
+                                    let _ = connection.close(true, 0, b"no longer needed");
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -377,12 +392,12 @@ mod tests {
 
         // client loop
         let server_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-        let (client_sx_queue, rx_sent_queue) = mio_channel::channel();
+        let (client_sx_queue, rx_sent_queue) = mpsc::channel();
         let (sx_recv_queue, client_rx_queue) = mpsc::channel();
 
         let _client_loop_jh = std::thread::spawn(move || {
             let client_config =
-                configure_client(maximum_concurrent_streams, 20_000_000, 1).unwrap();
+                configure_client(maximum_concurrent_streams, 20_000_000, 1, 25, 3).unwrap();
             let socket_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
             let is_connected = Arc::new(AtomicBool::new(false));
             if let Err(e) = client_loop(

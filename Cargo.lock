@@ -2463,6 +2463,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "quic-geyser-plugin-proxy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "clap",
+ "log",
+ "quic-geyser-client",
+ "quic-geyser-common",
+ "serde",
+ "serde_json",
+ "solana-rpc-client",
+ "solana-sdk",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "quic-plugin-tester-client"
 version = "0.1.0"
 dependencies = [

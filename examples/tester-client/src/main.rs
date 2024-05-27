@@ -48,6 +48,8 @@ pub fn main() {
             max_number_of_streams: 1024 * 1024,
             recieve_window_size: DEFAULT_MAX_RECIEVE_WINDOW_SIZE,
             timeout_in_seconds: 30,
+            max_ack_delay: 25,
+            ack_exponent: 3,
         },
     )
     .unwrap();

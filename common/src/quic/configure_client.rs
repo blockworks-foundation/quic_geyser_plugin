@@ -9,6 +9,8 @@ pub fn configure_client(
     maximum_concurrent_streams: u64,
     recieve_window_size: u64,
     timeout_in_seconds: u64,
+    maximum_ack_delay: u64,
+    ack_exponent: u64,
 ) -> anyhow::Result<quiche::Config> {
     let mut config = quiche::Config::new(quiche::PROTOCOL_VERSION).unwrap();
     config
@@ -26,5 +28,7 @@ pub fn configure_client(
     config.set_initial_max_streams_uni(maximum_concurrent_streams);
     config.set_disable_active_migration(true);
     config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+    config.set_max_ack_delay(maximum_ack_delay);
+    config.set_ack_delay_exponent(ack_exponent);
     Ok(config)
 }
