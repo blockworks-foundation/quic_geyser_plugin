@@ -2438,6 +2438,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "quic-geyser-blocking-client"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "itertools",
+ "log",
+ "mio",
+ "mio_channel",
+ "quic-geyser-common",
+ "quic-geyser-quiche-utils",
+ "quic-geyser-server",
+ "quiche",
+ "rand 0.8.5",
+ "ring 0.17.8",
+ "solana-sdk",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "quic-geyser-client"
 version = "0.1.3"
 dependencies = [
@@ -2501,14 +2521,31 @@ dependencies = [
  "bincode",
  "clap",
  "log",
- "quic-geyser-client",
+ "quic-geyser-blocking-client",
  "quic-geyser-common",
  "quic-geyser-server",
  "serde",
  "serde_json",
  "solana-rpc-client",
  "solana-sdk",
- "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "quic-geyser-quiche-utils"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "itertools",
+ "log",
+ "mio",
+ "quic-geyser-common",
+ "quic-geyser-server",
+ "quiche",
+ "rand 0.8.5",
+ "ring 0.17.8",
+ "solana-sdk",
  "tracing-subscriber",
 ]
 
@@ -2524,6 +2561,7 @@ dependencies = [
  "mio",
  "mio_channel",
  "quic-geyser-common",
+ "quic-geyser-quiche-utils",
  "quiche",
  "rand 0.8.5",
  "rcgen",

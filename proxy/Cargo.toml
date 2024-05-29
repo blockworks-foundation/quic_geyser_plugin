@@ -17,8 +17,7 @@ anyhow = { workspace = true }
 log = { workspace = true }
 bincode = { workspace = true }
 tracing-subscriber = { workspace = true }
-tokio = { workspace = true }
 
-quic-geyser-client = { workspace = true }
+quic-geyser-blocking-client = { workspace = true }
 quic-geyser-common = { workspace = true }
 quic-geyser-server = { workspace = true }

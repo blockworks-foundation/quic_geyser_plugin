@@ -6,7 +6,7 @@ use std::{
 
 use quic_geyser_common::{defaults::MAX_DATAGRAM_SIZE, message::Message};
 
-use crate::{
+use quic_geyser_quiche_utils::{
     quiche_reciever::{recv_message, ReadStreams},
     quiche_sender::{handle_writable, send_message},
     quiche_utils::{get_next_unidi, PartialResponses},
@@ -275,6 +275,7 @@ mod tests {
     };
 
     use itertools::Itertools;
+    use quic_geyser_server::{configure_server::configure_server, quiche_server_loop::server_loop};
     use solana_sdk::{account::Account, pubkey::Pubkey};
 
     use quic_geyser_common::{
@@ -286,10 +287,7 @@ mod tests {
         types::block_meta::SlotMeta,
     };
 
-    use crate::{
-        configure_client::configure_client, configure_server::configure_server,
-        quiche_server_loop::server_loop,
-    };
+    use crate::configure_client::configure_client;
 
     use super::client_loop;
 

@@ -23,15 +23,10 @@ use quic_geyser_common::{
     types::{account::Account, block_meta::SlotMeta, slot_identifier::SlotIdentifier},
 };
 
-use crate::{
-    quiche_reciever::recv_message,
+use quic_geyser_quiche_utils::{
+    quiche_reciever::{recv_message, ReadStreams},
     quiche_sender::{handle_writable, send_message},
-    quiche_utils::{get_next_unidi, mint_token, validate_token},
-};
-
-use super::{
-    quiche_reciever::ReadStreams,
-    quiche_utils::{write_to_socket, PartialResponses},
+    quiche_utils::{get_next_unidi, mint_token, validate_token, write_to_socket, PartialResponses},
 };
 
 struct DispatchingData {
