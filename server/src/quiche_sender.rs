@@ -1,5 +1,5 @@
-use super::quiche_utils::PartialResponses;
-use crate::{message::Message, quic::quiche_utils::PartialResponse};
+use crate::quiche_utils::{PartialResponse, PartialResponses};
+use quic_geyser_common::message::Message;
 use quiche::Connection;
 
 pub fn convert_to_binary(message: &Message) -> anyhow::Result<Vec<u8>> {

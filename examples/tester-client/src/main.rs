@@ -1,16 +1,13 @@
 use std::{
     sync::{atomic::AtomicU64, Arc},
     thread::sleep,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use clap::Parser;
 use cli::Args;
-use quic_geyser_client::blocking::client::Client;
-use quic_geyser_common::{
-    filters::Filter, quic::configure_client::DEFAULT_MAX_RECIEVE_WINDOW_SIZE,
-    types::connections_parameters::ConnectionParameters,
-};
+use quic_geyser_client::non_blocking::client::Client;
+use quic_geyser_common::{filters::Filter, types::connections_parameters::ConnectionParameters};
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::commitment_config::{CommitmentConfig, CommitmentLevel};
 
@@ -38,21 +35,14 @@ pub mod cli;
 // let config_json = json!(config);
 //println!("{}", config_json);
 
-pub fn main() {
+#[tokio::main]
+pub async fn main() {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
     println!("Connecting");
-    let (client, reciever) = Client::new(
-        args.url,
-        ConnectionParameters {
-            max_number_of_streams: 1024 * 1024,
-            recieve_window_size: DEFAULT_MAX_RECIEVE_WINDOW_SIZE,
-            timeout_in_seconds: 30,
-            max_ack_delay: 25,
-            ack_exponent: 3,
-        },
-    )
-    .unwrap();
+    let (client, mut reciever) = Client::new(args.url, ConnectionParameters::default())
+        .await
+        .unwrap();
     println!("Connected");
 
     let bytes_transfered = Arc::new(AtomicU64::new(0));
@@ -141,78 +131,64 @@ pub fn main() {
             Filter::Slot,
             Filter::BlockMeta,
         ])
+        .await
         .unwrap();
     println!("Subscribed");
 
-    let instant = Instant::now();
+    while let Some(message) = reciever.recv().await {
+        let message_size = bincode::serialize(&message).unwrap().len();
+        bytes_transfered.fetch_add(message_size as u64, std::sync::atomic::Ordering::Relaxed);
+        match message {
+            quic_geyser_common::message::Message::AccountMsg(account) => {
+                log::trace!("got account notification : {} ", account.pubkey);
+                account_notification.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let data_len = account.data_length as usize;
+                total_accounts_size
+                    .fetch_add(account.data_length, std::sync::atomic::Ordering::Relaxed);
+                let solana_account = account.solana_account();
+                if solana_account.data.len() != data_len {
+                    println!("data length different");
+                    println!(
+                        "Account : {}, owner: {}=={}, datalen: {}=={}, lamports: {}",
+                        account.pubkey,
+                        account.owner,
+                        solana_account.owner,
+                        data_len,
+                        solana_account.data.len(),
+                        solana_account.lamports
+                    );
+                    panic!("Wrong account data");
+                }
 
-    loop {
-        match reciever.recv() {
-            Ok(message) => {
-                let message_size = bincode::serialize(&message).unwrap().len();
-                bytes_transfered
-                    .fetch_add(message_size as u64, std::sync::atomic::Ordering::Relaxed);
-                match message {
-                    quic_geyser_common::message::Message::AccountMsg(account) => {
-                        log::trace!("got account notification : {} ", account.pubkey);
-                        account_notification.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let data_len = account.data_length as usize;
-                        total_accounts_size
-                            .fetch_add(account.data_length, std::sync::atomic::Ordering::Relaxed);
-                        let solana_account = account.solana_account();
-                        if solana_account.data.len() != data_len {
-                            println!("data length different");
-                            println!(
-                                "Account : {}, owner: {}=={}, datalen: {}=={}, lamports: {}",
-                                account.pubkey,
-                                account.owner,
-                                solana_account.owner,
-                                data_len,
-                                solana_account.data.len(),
-                                solana_account.lamports
-                            );
-                            panic!("Wrong account data");
-                        }
-
-                        account_slot.store(
-                            account.slot_identifier.slot,
-                            std::sync::atomic::Ordering::Relaxed,
-                        );
-                    }
-                    quic_geyser_common::message::Message::SlotMsg(slot) => {
-                        log::trace!("got slot notification : {} ", slot.slot);
-                        slot_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        if slot.commitment_level == CommitmentLevel::Processed {
-                            slot_slot.store(slot.slot, std::sync::atomic::Ordering::Relaxed);
-                        }
-                    }
-                    quic_geyser_common::message::Message::BlockMetaMsg(block_meta) => {
-                        log::trace!("got blockmeta notification : {} ", block_meta.slot);
-                        blockmeta_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        blockmeta_slot.store(block_meta.slot, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    quic_geyser_common::message::Message::TransactionMsg(tx) => {
-                        log::trace!(
-                            "got transaction notification: {}",
-                            tx.signatures[0].to_string()
-                        );
-                        transaction_notifications
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    quic_geyser_common::message::Message::Filters(_) => {
-                        // Not supported
-                    }
-                    quic_geyser_common::message::Message::Ping => {
-                        // not supported ping
-                    }
+                account_slot.store(
+                    account.slot_identifier.slot,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+            }
+            quic_geyser_common::message::Message::SlotMsg(slot) => {
+                log::trace!("got slot notification : {} ", slot.slot);
+                slot_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if slot.commitment_level == CommitmentLevel::Processed {
+                    slot_slot.store(slot.slot, std::sync::atomic::Ordering::Relaxed);
                 }
             }
-            Err(e) => {
-                println!(
-                    "Conection closed and streaming stopped in {} seconds with error {}, connected : {}",
-                    instant.elapsed().as_secs(), e, client.is_connected()
+            quic_geyser_common::message::Message::BlockMetaMsg(block_meta) => {
+                log::trace!("got blockmeta notification : {} ", block_meta.slot);
+                blockmeta_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                blockmeta_slot.store(block_meta.slot, std::sync::atomic::Ordering::Relaxed);
+            }
+            quic_geyser_common::message::Message::TransactionMsg(tx) => {
+                log::trace!(
+                    "got transaction notification: {}",
+                    tx.signatures[0].to_string()
                 );
-                break;
+                transaction_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            quic_geyser_common::message::Message::Filters(_) => {
+                // Not supported
+            }
+            quic_geyser_common::message::Message::Ping => {
+                // not supported ping
             }
         }
     }

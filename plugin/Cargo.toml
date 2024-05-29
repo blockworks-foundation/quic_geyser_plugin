@@ -1,6 +1,6 @@
 [package]
 name = "quic-geyser-plugin"
-version = "0.1.0"
+version = "0.1.3"
 edition = "2021"
 authors = ["Godmode Galactus"]
 
@@ -24,6 +24,7 @@ log = { workspace = true }
 thiserror = {workspace = true}
 
 quic-geyser-common = { workspace = true }
+quic-geyser-server = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }

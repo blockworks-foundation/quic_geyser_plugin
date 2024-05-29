@@ -7,7 +7,7 @@ authors = ["Godmode Galactus"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-solana-rpc-client = "~1.17.28"
+solana-rpc-client = "~1.17.31"
 
 clap = { workspace = true, features = ["derive", "env"]  }
 serde = { workspace = true }
@@ -17,6 +17,7 @@ anyhow = { workspace = true }
 log = { workspace = true }
 bincode = { workspace = true }
 tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
 
 quic-geyser-client = { workspace = true }
 quic-geyser-common = { workspace = true }

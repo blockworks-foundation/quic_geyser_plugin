@@ -4,13 +4,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     compression::CompressionType,
-    quic::configure_client::{DEFAULT_MAX_RECIEVE_WINDOW_SIZE, DEFAULT_MAX_STREAMS},
+    defaults::{
+        DEFAULT_ACK_EXPONENT, DEFAULT_CONNECTION_TIMEOUT, DEFAULT_MAX_ACK_DELAY,
+        DEFAULT_MAX_NB_CONNECTIONS, DEFAULT_MAX_RECIEVE_WINDOW_SIZE, DEFAULT_MAX_STREAMS,
+    },
 };
-
-pub const DEFAULT_CONNECTION_TIMEOUT: u64 = 10;
-pub const DEFAULT_MAX_NB_CONNECTIONS: u64 = 10;
-pub const DEFAULT_MAX_ACK_DELAY: u64 = 250;
-pub const DEFAULT_ACK_EXPONENT: u64 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

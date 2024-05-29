@@ -2,25 +2,26 @@ use std::{net::SocketAddr, str::FromStr};
 
 use clap::Parser;
 use cli::Args;
-use quic_geyser_client::blocking::client::Client;
+use quic_geyser_client::non_blocking::client::Client;
 use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
     config::{CompressionParameters, ConfigQuicPlugin, QuicParameters},
     filters::Filter,
-    quic::quic_server::QuicServer,
     types::{
         block_meta::BlockMeta, connections_parameters::ConnectionParameters,
         transaction::Transaction,
     },
 };
+use quic_geyser_server::quic_server::QuicServer;
 
 pub mod cli;
 
-pub fn main() -> anyhow::Result<()> {
+#[tokio::main()]
+pub async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
 
-    let (client, message_channel) = Client::new(
+    let (client, mut message_channel) = Client::new(
         args.source_url,
         ConnectionParameters {
             max_number_of_streams: args.max_number_of_streams_per_client,
@@ -29,15 +30,18 @@ pub fn main() -> anyhow::Result<()> {
             max_ack_delay: args.max_ack_delay,
             ack_exponent: args.ack_exponent,
         },
-    )?;
+    )
+    .await?;
 
     log::info!("Subscribing");
-    client.subscribe(vec![
-        Filter::AccountsAll,
-        Filter::TransactionsAll,
-        Filter::Slot,
-        Filter::BlockMeta,
-    ])?;
+    client
+        .subscribe(vec![
+            Filter::AccountsAll,
+            Filter::TransactionsAll,
+            Filter::Slot,
+            Filter::BlockMeta,
+        ])
+        .await?;
 
     let quic_config = ConfigQuicPlugin {
         address: SocketAddr::from_str(format!("0.0.0.0:{}", args.port).as_str()).unwrap(),
@@ -79,7 +83,7 @@ pub fn main() -> anyhow::Result<()> {
         }
     });
 
-    while let Ok(message) = message_channel.recv() {
+    while let Some(message) = message_channel.recv().await {
         let channel_message = match message {
             quic_geyser_common::message::Message::AccountMsg(account_message) => {
                 ChannelMessage::Account(

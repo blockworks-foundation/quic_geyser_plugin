@@ -5,6 +5,7 @@ members = [
     "plugin",
     "client",
     "common",
+    "server",
     "examples/tester-client",
     "examples/tester-server",
     "proxy",
@@ -52,10 +53,12 @@ cargo-lock = "9.0.0"
 git-version = "0.3.5"
 vergen = "8.2.1"
 rand = "0.8.5"
+tokio = "1.28.2"
 
-quic-geyser-common = {path = "common", version="0.1.0"}
-quic-geyser-client = {path = "client", version="0.1.0"}
-quic-geyser-plugin = {path = "plugin", version="0.1.0"}
+quic-geyser-common = {path = "common", version="0.1.3"}
+quic-geyser-client = {path = "client", version="0.1.3"}
+quic-geyser-plugin = {path = "plugin", version="0.1.3"}
+quic-geyser-server = {path = "server", version="0.1.3"}
 
 [profile.release]
 debug = true

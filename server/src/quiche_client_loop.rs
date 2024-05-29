@@ -4,15 +4,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+use quic_geyser_common::{defaults::MAX_DATAGRAM_SIZE, message::Message};
+
 use crate::{
-    message::Message,
-    quic::{
-        configure_server::MAX_DATAGRAM_SIZE,
-        quiche_reciever::{recv_message, ReadStreams},
-        quiche_sender::{handle_writable, send_message},
-        quiche_utils::{get_next_unidi, PartialResponses},
-    },
+    quiche_reciever::{recv_message, ReadStreams},
+    quiche_sender::{handle_writable, send_message},
+    quiche_utils::{get_next_unidi, PartialResponses},
 };
+
 use anyhow::bail;
 use ring::rand::{SecureRandom, SystemRandom};
 
@@ -278,17 +277,18 @@ mod tests {
     use itertools::Itertools;
     use solana_sdk::{account::Account, pubkey::Pubkey};
 
-    use crate::{
+    use quic_geyser_common::{
         channel_message::{AccountData, ChannelMessage},
         compression::CompressionType,
         config::QuicParameters,
         filters::Filter,
         message::Message,
-        quic::{
-            configure_client::configure_client, configure_server::configure_server,
-            quiche_server_loop::server_loop,
-        },
         types::block_meta::SlotMeta,
+    };
+
+    use crate::{
+        configure_client::configure_client, configure_server::configure_server,
+        quiche_server_loop::server_loop,
     };
 
     use super::client_loop;

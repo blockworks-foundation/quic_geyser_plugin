@@ -1,5 +1,5 @@
 [package]
-name = "quic-geyser-common"
+name = "quic-geyser-server"
 version = "0.1.3"
 edition = "2021"
 
@@ -12,7 +12,16 @@ anyhow = { workspace = true }
 log = { workspace = true }
 thiserror = {workspace = true}
 itertools = { workspace = true }
-lz4 = { workspace = true }
+bincode = { workspace = true }
+ring = {workspace = true}
+quiche = { workspace = true, features = ["boringssl-boring-crate"] }
+rcgen = { workspace = true }
+boring = { workspace = true }
+
+mio = { workspace = true }
+mio_channel = { workspace = true }
+
+quic-geyser-common = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }

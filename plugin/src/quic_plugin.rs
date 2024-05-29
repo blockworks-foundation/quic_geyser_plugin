@@ -5,13 +5,13 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
 use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
     plugin_error::QuicGeyserError,
-    quic::quic_server::QuicServer,
     types::{
         block_meta::BlockMeta,
         slot_identifier::SlotIdentifier,
         transaction::{Transaction, TransactionMeta},
     },
 };
+use quic_geyser_server::quic_server::QuicServer;
 use solana_sdk::{
     account::Account, clock::Slot, commitment_config::CommitmentLevel, message::v0::Message,
     pubkey::Pubkey,

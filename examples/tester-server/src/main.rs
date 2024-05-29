@@ -10,8 +10,8 @@ use itertools::Itertools;
 use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
     config::{CompressionParameters, ConfigQuicPlugin, QuicParameters},
-    quic::quic_server::QuicServer,
 };
+use quic_geyser_server::quic_server::QuicServer;
 use rand::{thread_rng, Rng};
 use solana_sdk::{account::Account, pubkey::Pubkey};
 

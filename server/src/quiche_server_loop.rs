@@ -13,21 +13,22 @@ use itertools::Itertools;
 use quiche::ConnectionId;
 use ring::rand::SystemRandom;
 
-use crate::{
+use quic_geyser_common::{
     channel_message::ChannelMessage,
     compression::CompressionType,
+    defaults::MAX_DATAGRAM_SIZE,
     filters::Filter,
     message::Message,
-    quic::{
-        quiche_reciever::recv_message,
-        quiche_sender::{handle_writable, send_message},
-        quiche_utils::{get_next_unidi, mint_token, validate_token},
-    },
     types::{account::Account, block_meta::SlotMeta, slot_identifier::SlotIdentifier},
 };
 
+use crate::{
+    quiche_reciever::recv_message,
+    quiche_sender::{handle_writable, send_message},
+    quiche_utils::{get_next_unidi, mint_token, validate_token},
+};
+
 use super::{
-    configure_server::MAX_DATAGRAM_SIZE,
     quiche_reciever::ReadStreams,
     quiche_utils::{write_to_socket, PartialResponses},
 };
@@ -304,7 +305,7 @@ fn create_client_task(
     std::thread::spawn(move || {
         let mut partial_responses = PartialResponses::new();
         let mut read_streams = ReadStreams::new();
-        let mut next_stream: u64 = 1;
+        let mut next_stream: u64 = 3;
         let mut connection = connection;
         let mut instance = Instant::now();
         let mut closed = false;

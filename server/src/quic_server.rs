@@ -1,8 +1,8 @@
 use std::{fmt::Debug, sync::mpsc};
 
-use crate::{
+use crate::configure_server::configure_server;
+use quic_geyser_common::{
     channel_message::ChannelMessage, config::ConfigQuicPlugin, plugin_error::QuicGeyserError,
-    quic::configure_server::configure_server,
 };
 
 use super::quiche_server_loop::server_loop;

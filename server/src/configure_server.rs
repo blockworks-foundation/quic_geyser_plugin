@@ -1,9 +1,9 @@
 use boring::ssl::SslMethod;
 
-use crate::config::QuicParameters;
-
-pub const ALPN_GEYSER_PROTOCOL_ID: &[u8] = b"geyser";
-pub const MAX_DATAGRAM_SIZE: usize = 1350; // MAX: 65527
+use quic_geyser_common::{
+    config::QuicParameters,
+    defaults::{ALPN_GEYSER_PROTOCOL_ID, MAX_DATAGRAM_SIZE},
+};
 
 pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche::Config> {
     let max_concurrent_streams = quic_parameter.max_number_of_streams_per_client;

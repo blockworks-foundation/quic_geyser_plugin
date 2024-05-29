@@ -2,9 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::bail;
 
-use crate::message::Message;
-
-use super::configure_server::MAX_DATAGRAM_SIZE;
+use quic_geyser_common::{defaults::MAX_DATAGRAM_SIZE, message::Message};
 
 pub fn convert_binary_to_message(bytes: Vec<u8>) -> anyhow::Result<Message> {
     Ok(bincode::deserialize::<Message>(&bytes)?)
