@@ -140,6 +140,7 @@ impl Client {
                             }
                             _ => {
                                 log::error!("Got {} while listing to the connection", e);
+                                break;
                             }
                         },
                     }
