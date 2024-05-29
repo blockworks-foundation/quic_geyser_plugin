@@ -77,7 +77,7 @@ pub fn client_loop(
 
     let mut buf = [0; 65535];
     'client: loop {
-        poll.poll(&mut events, Some(Duration::from_micros(500)))?;
+        poll.poll(&mut events, Some(Duration::from_micros(100)))?;
 
         'read: loop {
             match socket.recv_from(&mut buf) {
@@ -146,12 +146,18 @@ pub fn create_quiche_client_thread(
         let mut read_streams = ReadStreams::new();
         let mut connected = false;
         let mut instance = Instant::now();
-        let ping_binary = bincode::serialize(&Message::Ping).unwrap();
 
         'client: loop {
             poll.poll(&mut events, Some(Duration::from_micros(100)))
                 .unwrap();
             if events.is_empty() {
+                connection.on_timeout();
+            }
+
+            // sending ping
+            if instance.elapsed() > Duration::from_secs(5) {
+                log::debug!("sending ping to the server");
+                instance = Instant::now();
                 connection.on_timeout();
             }
 
@@ -188,25 +194,11 @@ pub fn create_quiche_client_thread(
                             }
                         }
                         Ok(None) => {
-                            // do nothing
+                            // do nothing / continue reading other streams
                         }
                         Err(e) => {
-                            log::error!("Error recieving message : {e}")
+                            log::error!("Error recieving message : {e}");
                         }
-                    }
-                }
-                // sending ping
-                if instance.elapsed() > Duration::from_secs(5) {
-                    log::debug!("sending ping to the server");
-                    instance = Instant::now();
-                    current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
-                    if let Err(e) = send_message(
-                        &mut connection,
-                        &mut partial_responses,
-                        current_stream_id,
-                        &ping_binary,
-                    ) {
-                        log::error!("sending ping failed with error {e:?}");
                     }
                 }
 

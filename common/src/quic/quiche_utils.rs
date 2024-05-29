@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, net::SocketAddr};
+use std::{collections::HashMap, net::SocketAddr};
 
 pub fn validate_token<'a>(
     src: &std::net::SocketAddr,
@@ -88,7 +88,7 @@ pub struct PartialResponse {
     pub written: usize,
 }
 
-pub type PartialResponses = BTreeMap<u64, PartialResponse>;
+pub type PartialResponses = HashMap<u64, PartialResponse>;
 
 // returns true if the socket will block the writing of socket
 // return false otherwise

@@ -132,6 +132,7 @@ pub fn main() {
         });
     }
 
+    sleep(Duration::from_secs(1));
     println!("Subscribing");
     client
         .subscribe(vec![

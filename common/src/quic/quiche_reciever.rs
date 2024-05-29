@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use anyhow::bail;
 
@@ -10,7 +10,7 @@ pub fn convert_binary_to_message(bytes: Vec<u8>) -> anyhow::Result<Message> {
     Ok(bincode::deserialize::<Message>(&bytes)?)
 }
 
-pub type ReadStreams = BTreeMap<u64, Vec<u8>>;
+pub type ReadStreams = HashMap<u64, Vec<u8>>;
 
 pub fn recv_message(
     connection: &mut quiche::Connection,

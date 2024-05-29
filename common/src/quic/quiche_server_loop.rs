@@ -39,8 +39,9 @@ struct DispatchingData {
 
 type DispachingConnections = Arc<Mutex<HashMap<ConnectionId<'static>, DispatchingData>>>;
 
-const MAX_MESSAGE_DEPILE_IN_LOOP: usize = 16 * 1024;
+const MAX_MESSAGE_DEPILE_IN_LOOP: usize = 32;
 const ACCEPTABLE_PACING_DELAY: Duration = Duration::from_millis(100);
+const MAX_ALLOWED_PARTIAL_RESPONSES: usize = 128 * 1024;
 
 struct Packet {
     pub buffer: Vec<u8>,
@@ -350,46 +351,56 @@ fn create_client_task(
                 while handle_writable(&mut connection, &mut partial_responses, stream_id) {}
             }
 
-            for _ in 0..MAX_MESSAGE_DEPILE_IN_LOOP {
-                if let Ok((message, priority)) = message_channel.try_recv() {
-                    if connection.is_closed() || !connection.is_established() {
-                        continue;
-                    }
+            if partial_responses.len() < MAX_ALLOWED_PARTIAL_RESPONSES {
+                for _ in 0..MAX_MESSAGE_DEPILE_IN_LOOP {
+                    if let Ok((message, priority)) = message_channel.try_recv() {
+                        if connection.is_closed() || !connection.is_established() {
+                            continue;
+                        }
 
-                    let stream_id = next_stream;
+                        let stream_id = next_stream;
 
-                    next_stream = get_next_unidi(stream_id, true, maximum_concurrent_streams);
+                        next_stream = get_next_unidi(stream_id, true, maximum_concurrent_streams);
 
-                    if let Err(e) = connection.stream_priority(stream_id, priority, true) {
-                        log::error!(
-                            "Unable to set priority for the stream {}, error {}",
-                            stream_id,
-                            e
-                        );
-                    }
-                    if let Err(e) =
-                        send_message(&mut connection, &mut partial_responses, stream_id, &message)
-                    {
-                        log::error!("Error sending message : {e}");
-                        if stop_laggy_client && !closed {
-                            if let Err(e) = connection.close(true, 1, b"laggy client") {
-                                if e != quiche::Error::Done {
-                                    log::error!("error closing client : {}", e);
-                                }
-                            } else {
-                                log::info!(
-                                    "Stopping laggy client : {} because of error : {}",
-                                    connection.trace_id(),
+                        if let Err(e) = connection.stream_priority(stream_id, priority, true) {
+                            if !closed {
+                                log::error!(
+                                    "Unable to set priority for the stream {}, error {}",
+                                    stream_id,
                                     e
                                 );
                             }
-                            closed = true;
+                        }
+                        if let Err(e) = send_message(
+                            &mut connection,
+                            &mut partial_responses,
+                            stream_id,
+                            &message,
+                        ) {
+                            if !closed {
+                                log::error!("Error sending message : {e}");
+                                if stop_laggy_client && !closed {
+                                    if let Err(e) = connection.close(true, 1, b"laggy client") {
+                                        if e != quiche::Error::Done {
+                                            log::error!("error closing client : {}", e);
+                                        }
+                                    } else {
+                                        log::info!(
+                                            "Stopping laggy client : {} because of error : {}",
+                                            connection.trace_id(),
+                                            e
+                                        );
+                                    }
+                                    closed = true;
+                                }
+                            }
+                            break;
                         }
                     }
                 }
             }
 
-            if instance.elapsed() > Duration::from_secs(1) {
+            if instance.elapsed() > Duration::from_secs(2) {
                 instance = Instant::now();
                 connection.on_timeout();
             }
