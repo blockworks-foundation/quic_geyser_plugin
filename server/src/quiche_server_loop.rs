@@ -299,6 +299,7 @@ pub fn server_loop(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_client_task(
     connection: quiche::Connection,
     receiver: mpsc::Receiver<(quiche::RecvInfo, Vec<u8>)>,
@@ -384,16 +385,8 @@ fn create_client_task(
                                 );
                             }
                         }
-                        if send_message(
-                            &mut connection,
-                            &mut partial_responses,
-                            stream_id,
-                            &message,
-                        ).is_err() {
-                            true
-                        } else {
-                            false
-                        }
+                        send_message(&mut connection, &mut partial_responses, stream_id, &message)
+                            .is_err()
                     }
                     Err(e) => {
                         match e {
@@ -406,20 +399,16 @@ fn create_client_task(
                     }
                 };
 
-                if close && !closed {
-                    if stop_laggy_client && !closed {
-                        if let Err(e) = connection.close(true, 1, b"laggy client") {
-                            if e != quiche::Error::Done {
-                                log::error!("error closing client : {}", e);
-                            }
-                        } else {
-                            log::info!(
-                                "Stopping laggy client : {}",
-                                connection.trace_id(),
-                            );
+                if close && !closed && stop_laggy_client {
+                    if let Err(e) = connection.close(true, 1, b"laggy client") {
+                        if e != quiche::Error::Done {
+                            log::error!("error closing client : {}", e);
                         }
-                        closed = true;
+                    } else {
+                        log::info!("Stopping laggy client : {}", connection.trace_id(),);
                     }
+                    closed = true;
+                    break;
                 }
             }
 

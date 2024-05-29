@@ -127,7 +127,7 @@ impl Client {
                                         let _ = sender.send(message);
                                     }
                                     Err(e) => {
-                                        log::error!("Error getting message {}", e);
+                                        log::trace!("Error getting message {}", e);
                                     }
                                 }
                             });
