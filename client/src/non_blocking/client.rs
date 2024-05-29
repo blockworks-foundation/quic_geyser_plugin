@@ -43,7 +43,10 @@ pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> En
     let mut config = ClientConfig::new(Arc::new(crypto));
     let mut transport_config = TransportConfig::default();
 
-    let timeout = IdleTimeout::try_from(Duration::from_secs(30)).unwrap();
+    let timeout = IdleTimeout::try_from(Duration::from_secs(
+        connection_parameters.timeout_in_seconds,
+    ))
+    .unwrap();
     transport_config.max_idle_timeout(Some(timeout));
     transport_config.keep_alive_interval(Some(Duration::from_secs(1)));
     transport_config
@@ -100,6 +103,7 @@ impl Client {
         server_address: String,
         connection_parameters: ConnectionParameters,
     ) -> anyhow::Result<(Client, tokio::sync::mpsc::UnboundedReceiver<Message>)> {
+        let timeout: u64 = connection_parameters.timeout_in_seconds;
         let endpoint = create_client_endpoint(connection_parameters);
         let socket_addr = SocketAddr::from_str(&server_address)?;
         let connecting = endpoint.connect(socket_addr, "quic_geyser_client")?;
@@ -117,7 +121,7 @@ impl Client {
                         Ok(recv_stream) => {
                             let sender = message_sx_queue.clone();
                             tokio::spawn(async move {
-                                let message = recv_message(recv_stream, 10).await;
+                                let message = recv_message(recv_stream, timeout).await;
                                 match message {
                                     Ok(message) => {
                                         let _ = sender.send(message);

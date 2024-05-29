@@ -377,6 +377,7 @@ mod tests {
                 rx_sent_queue,
                 CompressionType::Lz4Fast(8),
                 true,
+                100,
             ) {
                 println!("Server loop closed by error : {e}");
             }

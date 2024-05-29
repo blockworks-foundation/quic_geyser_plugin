@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     net::SocketAddr,
     sync::{
+        atomic::AtomicU64,
         mpsc::{self, Sender},
         Arc, Mutex, RwLock,
     },
@@ -16,7 +17,7 @@ use ring::rand::SystemRandom;
 use quic_geyser_common::{
     channel_message::ChannelMessage,
     compression::CompressionType,
-    defaults::MAX_DATAGRAM_SIZE,
+    defaults::{MAX_ALLOWED_PARTIAL_RESPONSES, MAX_DATAGRAM_SIZE},
     filters::Filter,
     message::Message,
     types::{account::Account, block_meta::SlotMeta, slot_identifier::SlotIdentifier},
@@ -36,13 +37,13 @@ use super::{
 struct DispatchingData {
     pub sender: Sender<(Vec<u8>, u8)>,
     pub filters: Arc<RwLock<Vec<Filter>>>,
+    pub message_counter: Arc<AtomicU64>,
 }
 
 type DispachingConnections = Arc<Mutex<HashMap<ConnectionId<'static>, DispatchingData>>>;
 
 const MAX_MESSAGE_DEPILE_IN_LOOP: usize = 32;
 const ACCEPTABLE_PACING_DELAY: Duration = Duration::from_millis(100);
-const MAX_ALLOWED_PARTIAL_RESPONSES: usize = 128 * 1024;
 
 struct Packet {
     pub buffer: Vec<u8>,
@@ -55,8 +56,9 @@ pub fn server_loop(
     message_send_queue: mpsc::Receiver<ChannelMessage>,
     compression_type: CompressionType,
     stop_laggy_client: bool,
+    max_number_of_streams: u64,
 ) -> anyhow::Result<()> {
-    let maximum_concurrent_streams = u64::MAX;
+    let maximum_concurrent_streams_id = u64::MAX;
 
     let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
     let mut poll = mio::Poll::new()?;
@@ -98,6 +100,7 @@ pub fn server_loop(
         message_send_queue,
         dispatching_connections.clone(),
         compression_type,
+        max_number_of_streams,
     );
 
     loop {
@@ -215,6 +218,7 @@ pub fn server_loop(
                 let (client_sender, client_reciver) = mpsc::channel();
 
                 let (client_message_sx, client_message_rx) = mpsc::channel();
+                let message_counter = Arc::new(AtomicU64::new(0));
 
                 let filters = Arc::new(RwLock::new(Vec::new()));
                 create_client_task(
@@ -223,8 +227,9 @@ pub fn server_loop(
                     write_sender.clone(),
                     client_message_rx,
                     filters.clone(),
-                    maximum_concurrent_streams,
+                    maximum_concurrent_streams_id,
                     stop_laggy_client,
+                    message_counter.clone(),
                 );
                 let mut lk = dispatching_connections.lock().unwrap();
                 lk.insert(
@@ -232,6 +237,7 @@ pub fn server_loop(
                     DispatchingData {
                         sender: client_message_sx,
                         filters,
+                        message_counter,
                     },
                 );
                 clients.insert(scid, client_sender);
@@ -299,8 +305,9 @@ fn create_client_task(
     sender: mpsc::Sender<(quiche::SendInfo, Vec<u8>)>,
     message_channel: mpsc::Receiver<(Vec<u8>, u8)>,
     filters: Arc<RwLock<Vec<Filter>>>,
-    maximum_concurrent_streams: u64,
+    maximum_concurrent_streams_id: u64,
     stop_laggy_client: bool,
+    message_count: Arc<AtomicU64>,
 ) {
     std::thread::spawn(move || {
         let mut partial_responses = PartialResponses::new();
@@ -352,16 +359,21 @@ fn create_client_task(
                 while handle_writable(&mut connection, &mut partial_responses, stream_id) {}
             }
 
-            if partial_responses.len() < MAX_ALLOWED_PARTIAL_RESPONSES {
-                for _ in 0..MAX_MESSAGE_DEPILE_IN_LOOP {
-                    if let Ok((message, priority)) = message_channel.try_recv() {
-                        if connection.is_closed() || !connection.is_established() {
-                            continue;
-                        }
-
+            for _ in 0..MAX_MESSAGE_DEPILE_IN_LOOP {
+                if partial_responses.len() > MAX_ALLOWED_PARTIAL_RESPONSES {
+                    // too many streams open already try to fullfill them
+                    break;
+                }
+                if connection.is_closed() || !connection.is_established() {
+                    break;
+                }
+                let close = match message_channel.try_recv() {
+                    Ok((message, priority)) => {
+                        message_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                         let stream_id = next_stream;
 
-                        next_stream = get_next_unidi(stream_id, true, maximum_concurrent_streams);
+                        next_stream =
+                            get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
 
                         if let Err(e) = connection.stream_priority(stream_id, priority, true) {
                             if !closed {
@@ -372,31 +384,41 @@ fn create_client_task(
                                 );
                             }
                         }
-                        if let Err(e) = send_message(
+                        if send_message(
                             &mut connection,
                             &mut partial_responses,
                             stream_id,
                             &message,
-                        ) {
-                            if !closed {
-                                log::error!("Error sending message : {e}");
-                                if stop_laggy_client && !closed {
-                                    if let Err(e) = connection.close(true, 1, b"laggy client") {
-                                        if e != quiche::Error::Done {
-                                            log::error!("error closing client : {}", e);
-                                        }
-                                    } else {
-                                        log::info!(
-                                            "Stopping laggy client : {} because of error : {}",
-                                            connection.trace_id(),
-                                            e
-                                        );
-                                    }
-                                    closed = true;
-                                }
-                            }
-                            break;
+                        ).is_err() {
+                            true
+                        } else {
+                            false
                         }
+                    }
+                    Err(e) => {
+                        match e {
+                            mpsc::TryRecvError::Empty => false,
+                            mpsc::TryRecvError::Disconnected => {
+                                // too many message the connection is lagging
+                                true
+                            }
+                        }
+                    }
+                };
+
+                if close && !closed {
+                    if stop_laggy_client && !closed {
+                        if let Err(e) = connection.close(true, 1, b"laggy client") {
+                            if e != quiche::Error::Done {
+                                log::error!("error closing client : {}", e);
+                            }
+                        } else {
+                            log::info!(
+                                "Stopping laggy client : {}",
+                                connection.trace_id(),
+                            );
+                        }
+                        closed = true;
                     }
                 }
             }
@@ -442,6 +464,7 @@ fn create_dispatching_thread(
     message_send_queue: mpsc::Receiver<ChannelMessage>,
     dispatching_connections: DispachingConnections,
     compression_type: CompressionType,
+    max_number_of_streams: u64,
 ) {
     std::thread::spawn(move || {
         while let Ok(message) = message_send_queue.recv() {
@@ -489,18 +512,21 @@ fn create_dispatching_thread(
                 let binary =
                     bincode::serialize(&message).expect("Message should be serializable in binary");
                 for id in dispatching_connections.iter() {
-                    if dispatching_connections_lk
-                        .get(id)
-                        .unwrap()
-                        .sender
-                        .send((binary.clone(), priority))
-                        .is_err()
-                    {
+                    let data = dispatching_connections_lk.get(id).unwrap();
+                    data.message_counter
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if data.sender.send((binary.clone(), priority)).is_err() {
                         // client is closed
                         dispatching_connections_lk.remove(id);
                     }
                 }
             }
+            dispatching_connections_lk.retain(|_id, connection| {
+                connection
+                    .message_counter
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                    < max_number_of_streams
+            });
         }
     });
 }
