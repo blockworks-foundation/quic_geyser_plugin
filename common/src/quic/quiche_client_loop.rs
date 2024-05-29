@@ -194,7 +194,7 @@ pub fn create_quiche_client_thread(
                             }
                         }
                         Ok(None) => {
-                            // do nothing / continue reading other streams
+                            // do nothing / continue
                         }
                         Err(e) => {
                             log::error!("Error recieving message : {e}");

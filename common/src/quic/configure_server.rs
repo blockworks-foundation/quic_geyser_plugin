@@ -43,9 +43,10 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     config.set_disable_active_migration(true);
     config.set_max_connection_window(128 * 1024 * 1024); // 128 Mbs
     config.enable_early_data();
-    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
+    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
     config.set_active_connection_id_limit(max_number_of_connections);
     config.set_max_ack_delay(maximum_ack_delay);
     config.set_ack_delay_exponent(ack_exponent);
+    config.enable_pacing(false);
     Ok(config)
 }
