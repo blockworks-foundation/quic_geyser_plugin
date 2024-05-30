@@ -383,15 +383,16 @@ fn create_client_task(
                                         e
                                     );
                                 }
-                                break;
+                                true
+                            } else {
+                                send_message(
+                                    &mut connection,
+                                    &mut partial_responses,
+                                    stream_id,
+                                    &message,
+                                )
+                                .is_err()
                             }
-                            send_message(
-                                &mut connection,
-                                &mut partial_responses,
-                                stream_id,
-                                &message,
-                            )
-                            .is_err()
                         }
                         Err(e) => {
                             match e {
