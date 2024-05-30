@@ -37,7 +37,6 @@ struct DispatchingData {
 
 type DispachingConnections = Arc<Mutex<HashMap<ConnectionId<'static>, DispatchingData>>>;
 
-const MAX_MESSAGE_DEPILE_IN_LOOP: usize = 32;
 const ACCEPTABLE_PACING_DELAY: Duration = Duration::from_millis(100);
 
 struct Packet {
@@ -316,16 +315,15 @@ fn create_client_task(
 
         let mut poll = mio::Poll::new().unwrap();
         let mut events = mio::Events::with_capacity(1024);
-        let max_allowed_partial_responses =  MAX_ALLOWED_PARTIAL_RESPONSES as usize;
+        let max_allowed_partial_responses = MAX_ALLOWED_PARTIAL_RESPONSES as usize;
 
-        poll.registry().register(
-            &mut receiver,
-            mio::Token(0),
-            mio::Interest::READABLE,
-        ).unwrap();
+        poll.registry()
+            .register(&mut receiver, mio::Token(0), mio::Interest::READABLE)
+            .unwrap();
 
         loop {
-            poll.poll(&mut events, Some(Duration::from_millis(1))).unwrap();
+            poll.poll(&mut events, Some(Duration::from_millis(1)))
+                .unwrap();
 
             while let Ok((info, mut buf)) = receiver.try_recv() {
                 let buf = buf.as_mut_slice();
@@ -367,55 +365,58 @@ fn create_client_task(
                 while handle_writable(&mut connection, &mut partial_responses, stream_id) {}
             }
 
-            for _ in 0..MAX_MESSAGE_DEPILE_IN_LOOP {
-                if partial_responses.len() > max_allowed_partial_responses {
-                    // too many streams open already try to fullfill them
-                    break;
-                }
-                if connection.is_closed() || !connection.is_established() {
-                    break;
-                }
-                let close = match message_channel.try_recv() {
-                    Ok((message, priority)) => {
-                        message_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                        let stream_id = next_stream;
+            if !connection.is_closed() && connection.is_established() {
+                while partial_responses.len() < max_allowed_partial_responses {
+                    if connection.is_closed() || !connection.is_established() {
+                        break;
+                    }
+                    let close = match message_channel.try_recv() {
+                        Ok((message, priority)) => {
+                            message_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                            let stream_id = next_stream;
 
-                        next_stream =
-                            get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
+                            next_stream =
+                                get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
 
-                        if let Err(e) = connection.stream_priority(stream_id, priority, true) {
-                            if !closed {
-                                log::error!(
-                                    "Unable to set priority for the stream {}, error {}",
-                                    stream_id,
-                                    e
-                                );
+                            if let Err(e) = connection.stream_priority(stream_id, priority, true) {
+                                if !closed {
+                                    log::error!(
+                                        "Unable to set priority for the stream {}, error {}",
+                                        stream_id,
+                                        e
+                                    );
+                                }
                             }
-                        }
-                        send_message(&mut connection, &mut partial_responses, stream_id, &message)
+                            send_message(
+                                &mut connection,
+                                &mut partial_responses,
+                                stream_id,
+                                &message,
+                            )
                             .is_err()
-                    }
-                    Err(e) => {
-                        match e {
-                            mpsc::TryRecvError::Empty => false,
-                            mpsc::TryRecvError::Disconnected => {
-                                // too many message the connection is lagging
-                                true
+                        }
+                        Err(e) => {
+                            match e {
+                                mpsc::TryRecvError::Empty => false,
+                                mpsc::TryRecvError::Disconnected => {
+                                    // too many message the connection is lagging
+                                    true
+                                }
                             }
                         }
-                    }
-                };
+                    };
 
-                if close && !closed && stop_laggy_client {
-                    if let Err(e) = connection.close(true, 1, b"laggy client") {
-                        if e != quiche::Error::Done {
-                            log::error!("error closing client : {}", e);
+                    if close && !closed && stop_laggy_client {
+                        if let Err(e) = connection.close(true, 1, b"laggy client") {
+                            if e != quiche::Error::Done {
+                                log::error!("error closing client : {}", e);
+                            }
+                        } else {
+                            log::info!("Stopping laggy client : {}", connection.trace_id(),);
                         }
-                    } else {
-                        log::info!("Stopping laggy client : {}", connection.trace_id(),);
+                        closed = true;
+                        break;
                     }
-                    closed = true;
-                    break;
                 }
             }
 
