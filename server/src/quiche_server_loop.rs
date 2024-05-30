@@ -73,7 +73,7 @@ pub fn server_loop(
     let conn_id_seed = ring::hmac::Key::generate(ring::hmac::HMAC_SHA256, &rng).unwrap();
     let mut clients: HashMap<
         quiche::ConnectionId<'static>,
-        mpsc::Sender<(quiche::RecvInfo, Vec<u8>)>,
+        mio_channel::Sender<(quiche::RecvInfo, Vec<u8>)>,
     > = HashMap::new();
 
     let (write_sender, write_reciver) = std::sync::mpsc::channel::<(quiche::SendInfo, Vec<u8>)>();
@@ -210,7 +210,7 @@ pub fn server_loop(
                     }
                 };
 
-                let (client_sender, client_reciver) = mpsc::channel();
+                let (client_sender, client_reciver) = mio_channel::channel();
 
                 let (client_message_sx, client_message_rx) = mpsc::channel();
                 let message_counter = Arc::new(AtomicU64::new(0));
@@ -297,7 +297,7 @@ pub fn server_loop(
 #[allow(clippy::too_many_arguments)]
 fn create_client_task(
     connection: quiche::Connection,
-    receiver: mpsc::Receiver<(quiche::RecvInfo, Vec<u8>)>,
+    mut receiver: mio_channel::Receiver<(quiche::RecvInfo, Vec<u8>)>,
     sender: mpsc::Sender<(quiche::SendInfo, Vec<u8>)>,
     message_channel: mpsc::Receiver<(Vec<u8>, u8)>,
     filters: Arc<RwLock<Vec<Filter>>>,
@@ -314,7 +314,19 @@ fn create_client_task(
         let mut closed = false;
         let mut out = [0; MAX_DATAGRAM_SIZE];
 
+        let mut poll = mio::Poll::new().unwrap();
+        let mut events = mio::Events::with_capacity(1024);
+        let max_allowed_partial_responses =  MAX_ALLOWED_PARTIAL_RESPONSES as usize;
+
+        poll.registry().register(
+            &mut receiver,
+            mio::Token(0),
+            mio::Interest::READABLE,
+        ).unwrap();
+
         loop {
+            poll.poll(&mut events, Some(Duration::from_millis(1))).unwrap();
+
             while let Ok((info, mut buf)) = receiver.try_recv() {
                 let buf = buf.as_mut_slice();
                 match connection.recv(buf, info) {
@@ -356,7 +368,7 @@ fn create_client_task(
             }
 
             for _ in 0..MAX_MESSAGE_DEPILE_IN_LOOP {
-                if partial_responses.len() > MAX_ALLOWED_PARTIAL_RESPONSES {
+                if partial_responses.len() > max_allowed_partial_responses {
                     // too many streams open already try to fullfill them
                     break;
                 }
