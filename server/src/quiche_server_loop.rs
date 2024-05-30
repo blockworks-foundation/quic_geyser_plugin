@@ -321,24 +321,76 @@ fn create_client_task(
             .register(&mut receiver, mio::Token(0), mio::Interest::READABLE)
             .unwrap();
 
+        let number_of_loops = Arc::new(AtomicU64::new(0));
+        let number_of_meesages_from_network = Arc::new(AtomicU64::new(0));
+        let number_of_meesages_to_network = Arc::new(AtomicU64::new(0));
+        let number_of_readable_streams = Arc::new(AtomicU64::new(0));
+        let number_of_writable_streams = Arc::new(AtomicU64::new(0));
+        let messages_added = Arc::new(AtomicU64::new(0));
+
+        {
+            let number_of_loops = number_of_loops.clone();
+            let number_of_meesages_from_network = number_of_meesages_from_network.clone();
+            let number_of_meesages_to_network = number_of_meesages_to_network.clone();
+            let number_of_readable_streams = number_of_readable_streams.clone();
+            let number_of_writable_streams = number_of_writable_streams.clone();
+            let messages_added = messages_added.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_secs(1));
+                println!("---------------------------------");
+                println!(
+                    "number of loop : {}",
+                    number_of_loops.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
+                println!(
+                    "number of packets read : {}",
+                    number_of_meesages_from_network.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
+                println!(
+                    "number of packets write : {}",
+                    number_of_meesages_to_network.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
+                println!(
+                    "number_of_readable_streams : {}",
+                    number_of_readable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
+                println!(
+                    "number_of_writable_streams : {}",
+                    number_of_writable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
+                println!(
+                    "messages_added : {}",
+                    messages_added.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
+            });
+        }
+
         loop {
+            number_of_loops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             poll.poll(&mut events, Some(Duration::from_millis(1)))
                 .unwrap();
 
-            while let Ok((info, mut buf)) = receiver.try_recv() {
-                let buf = buf.as_mut_slice();
-                match connection.recv(buf, info) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        log::error!("{} recv failed: {:?}", connection.trace_id(), e);
-                        break;
-                    }
-                };
+            if !events.is_empty() {
+                while let Ok((info, mut buf)) = receiver.try_recv() {
+                    let buf = buf.as_mut_slice();
+                    match connection.recv(buf, info) {
+                        Ok(_) => {
+                            number_of_meesages_from_network
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        Err(e) => {
+                            log::error!("{} recv failed: {:?}", connection.trace_id(), e);
+                            break;
+                        }
+                    };
+                }
+                continue;
             }
 
             if connection.is_in_early_data() || connection.is_established() {
                 // Process all readable streams.
                 for stream in connection.readable() {
+                    number_of_readable_streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let message = recv_message(&mut connection, &mut read_streams, stream);
                     match message {
                         Ok(Some(message)) => match message {
@@ -362,7 +414,8 @@ fn create_client_task(
             }
 
             for stream_id in connection.writable() {
-                while handle_writable(&mut connection, &mut partial_responses, stream_id) {}
+                number_of_writable_streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                handle_writable(&mut connection, &mut partial_responses, stream_id);
             }
 
             if !connection.is_closed() && connection.is_established() {
@@ -385,6 +438,7 @@ fn create_client_task(
                                 }
                                 true
                             } else {
+                                messages_added.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 send_message(
                                     &mut connection,
                                     &mut partial_responses,
@@ -429,6 +483,8 @@ fn create_client_task(
             loop {
                 match connection.send(&mut out) {
                     Ok((len, send_info)) => {
+                        number_of_meesages_to_network
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         sender.send((send_info, out[..len].to_vec())).unwrap();
                     }
                     Err(quiche::Error::Done) => {
