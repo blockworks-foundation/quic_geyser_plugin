@@ -367,9 +367,6 @@ fn create_client_task(
 
             if !connection.is_closed() && connection.is_established() {
                 while partial_responses.len() < max_allowed_partial_responses {
-                    if connection.is_closed() || !connection.is_established() {
-                        break;
-                    }
                     let close = match message_channel.try_recv() {
                         Ok((message, priority)) => {
                             message_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
@@ -386,6 +383,7 @@ fn create_client_task(
                                         e
                                     );
                                 }
+                                break;
                             }
                             send_message(
                                 &mut connection,
@@ -397,7 +395,9 @@ fn create_client_task(
                         }
                         Err(e) => {
                             match e {
-                                mpsc::TryRecvError::Empty => false,
+                                mpsc::TryRecvError::Empty => {
+                                    break;
+                                }
                                 mpsc::TryRecvError::Disconnected => {
                                     // too many message the connection is lagging
                                     true
