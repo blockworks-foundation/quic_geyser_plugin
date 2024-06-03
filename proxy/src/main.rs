@@ -94,7 +94,7 @@ pub fn main() -> anyhow::Result<()> {
             quic_geyser_common::message::Message::SlotMsg(slot_message) => ChannelMessage::Slot(
                 slot_message.slot,
                 slot_message.parent,
-                slot_message.commitment_level,
+                slot_message.commitment_config,
             ),
             quic_geyser_common::message::Message::BlockMetaMsg(block_meta_message) => {
                 ChannelMessage::BlockMeta(BlockMeta {

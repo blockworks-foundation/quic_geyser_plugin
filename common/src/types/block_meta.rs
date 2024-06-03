@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use solana_sdk::commitment_config::CommitmentLevel;
+use solana_sdk::commitment_config::CommitmentConfig;
 use solana_transaction_status::Reward;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -7,7 +7,7 @@ use solana_transaction_status::Reward;
 pub struct SlotMeta {
     pub slot: u64,
     pub parent: u64,
-    pub commitment_level: CommitmentLevel,
+    pub commitment_config: CommitmentConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

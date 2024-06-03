@@ -1,5 +1,5 @@
 use solana_sdk::{
-    account::Account, clock::Slot, commitment_config::CommitmentLevel, pubkey::Pubkey,
+    account::Account, clock::Slot, commitment_config::CommitmentConfig, pubkey::Pubkey,
 };
 
 use crate::types::{block_meta::BlockMeta, transaction::Transaction};
@@ -14,7 +14,7 @@ pub struct AccountData {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChannelMessage {
     Account(AccountData, Slot),
-    Slot(u64, u64, CommitmentLevel),
+    Slot(u64, u64, CommitmentConfig),
     BlockMeta(BlockMeta),
     Transaction(Box<Transaction>),
 }

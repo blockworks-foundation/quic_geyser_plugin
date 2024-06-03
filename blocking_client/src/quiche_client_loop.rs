@@ -147,7 +147,7 @@ pub fn create_quiche_client_thread(
         let mut instance = Instant::now();
 
         'client: loop {
-            poll.poll(&mut events, Some(Duration::from_micros(100)))
+            poll.poll(&mut events, Some(Duration::from_millis(10)))
                 .unwrap();
             if events.is_empty() {
                 connection.on_timeout();
@@ -303,7 +303,7 @@ mod tests {
         let message_1 = ChannelMessage::Slot(
             3,
             2,
-            solana_sdk::commitment_config::CommitmentLevel::Confirmed,
+            solana_sdk::commitment_config::CommitmentConfig::confirmed(),
         );
         let message_2 = ChannelMessage::Account(
             AccountData {
@@ -424,7 +424,7 @@ mod tests {
             Message::SlotMsg(SlotMeta {
                 slot: 3,
                 parent: 2,
-                commitment_level: solana_sdk::commitment_config::CommitmentLevel::Confirmed
+                commitment_config: solana_sdk::commitment_config::CommitmentConfig::confirmed()
             })
         );
 

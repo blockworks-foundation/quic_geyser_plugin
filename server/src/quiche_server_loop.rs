@@ -98,7 +98,7 @@ pub fn server_loop(
     );
 
     loop {
-        poll.poll(&mut events, Some(Duration::from_micros(100)))?;
+        poll.poll(&mut events, Some(Duration::from_millis(10)))?;
         'read: loop {
             let (len, from) = match socket.recv_from(&mut buf) {
                 Ok(v) => v,
@@ -403,9 +403,6 @@ fn create_client_task(
                                 let mut filter_lk = filters.write().unwrap();
                                 filter_lk.append(&mut f);
                             }
-                            Message::Ping => {
-                                // got ping
-                            }
                             _ => {
                                 log::error!("unknown message from the client");
                             }
@@ -556,11 +553,11 @@ fn create_dispatching_thread(
 
                         (Message::AccountMsg(geyser_account), 4)
                     }
-                    ChannelMessage::Slot(slot, parent, commitment_level) => (
+                    ChannelMessage::Slot(slot, parent, commitment_config) => (
                         Message::SlotMsg(SlotMeta {
                             slot,
                             parent,
-                            commitment_level,
+                            commitment_config,
                         }),
                         1,
                     ),

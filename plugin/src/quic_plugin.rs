@@ -13,7 +13,7 @@ use quic_geyser_common::{
 };
 use quic_geyser_server::quic_server::QuicServer;
 use solana_sdk::{
-    account::Account, clock::Slot, commitment_config::CommitmentLevel, message::v0::Message,
+    account::Account, clock::Slot, commitment_config::CommitmentConfig, message::v0::Message,
     pubkey::Pubkey,
 };
 
@@ -103,9 +103,9 @@ impl GeyserPlugin for QuicGeyserPlugin {
             return Ok(());
         };
         let commitment_level = match status {
-            SlotStatus::Processed => CommitmentLevel::Processed,
-            SlotStatus::Rooted => CommitmentLevel::Finalized,
-            SlotStatus::Confirmed => CommitmentLevel::Confirmed,
+            SlotStatus::Processed => CommitmentConfig::processed(),
+            SlotStatus::Rooted => CommitmentConfig::finalized(),
+            SlotStatus::Confirmed => CommitmentConfig::confirmed(),
         };
         let slot_message = ChannelMessage::Slot(slot, parent.unwrap_or_default(), commitment_level);
         quic_server

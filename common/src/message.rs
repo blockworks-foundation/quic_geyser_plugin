@@ -3,9 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     filters::Filter,
     types::{
-        account::Account,
-        block_meta::{BlockMeta, SlotMeta},
-        transaction::Transaction,
+        account::Account, block::Block, block_meta::{BlockMeta, SlotMeta}, transaction::Transaction
     },
 };
 
@@ -20,5 +18,5 @@ pub enum Message {
     BlockMetaMsg(BlockMeta),
     TransactionMsg(Box<Transaction>),
     Filters(Vec<Filter>), // sent from client to server
-    Ping,
+    Block(Block),
 }

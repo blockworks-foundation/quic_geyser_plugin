@@ -25,5 +25,6 @@ pub fn configure_client(
     config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
     config.set_max_ack_delay(maximum_ack_delay);
     config.set_ack_delay_exponent(ack_exponent);
+    config.enable_pacing(false);
     Ok(config)
 }
