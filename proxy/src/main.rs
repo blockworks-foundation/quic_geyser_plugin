@@ -58,6 +58,7 @@ pub fn main() -> anyhow::Result<()> {
         number_of_retries: 100,
         allow_accounts: true,
         allow_accounts_at_startup: false,
+        enable_block_builder: false,
     };
 
     let (server_sender, server_reciever) = std::sync::mpsc::channel::<ChannelMessage>();

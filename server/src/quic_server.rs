@@ -7,7 +7,7 @@ use quic_geyser_common::{
 
 use super::quiche_server_loop::server_loop;
 pub struct QuicServer {
-    data_channel_sender: mpsc::Sender<ChannelMessage>,
+    pub data_channel_sender: mpsc::Sender<ChannelMessage>,
     pub quic_plugin_config: ConfigQuicPlugin,
 }
 

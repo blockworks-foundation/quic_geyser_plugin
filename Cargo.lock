@@ -2519,6 +2519,7 @@ dependencies = [
  "clap",
  "git-version",
  "log",
+ "quic-geyser-block-builder",
  "quic-geyser-common",
  "quic-geyser-server",
  "serde",

@@ -127,6 +127,7 @@ mod tests {
                     log_level: "debug".to_string(),
                     allow_accounts: true,
                     allow_accounts_at_startup: false,
+                    enable_block_builder: false,
                 };
                 let quic_server = QuicServer::new(config).unwrap();
                 // wait for client to connect and subscribe

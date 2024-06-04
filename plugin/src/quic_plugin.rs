@@ -2,6 +2,7 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
     ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
 };
+use quic_geyser_block_builder::block_builder::start_block_building_thread;
 use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
     plugin_error::QuicGeyserError,
@@ -22,6 +23,7 @@ use crate::config::Config;
 #[derive(Debug, Default)]
 pub struct QuicGeyserPlugin {
     quic_server: Option<QuicServer>,
+    block_builder_channel: Option<std::sync::mpsc::Sender<ChannelMessage>>,
 }
 
 impl GeyserPlugin for QuicGeyserPlugin {
@@ -32,11 +34,22 @@ impl GeyserPlugin for QuicGeyserPlugin {
     fn on_load(&mut self, config_file: &str) -> PluginResult<()> {
         log::info!("loading quic_geyser plugin");
         let config = Config::load_from_file(config_file)?;
+        let compression_type = config.quic_plugin.compression_parameters.compression_type;
+        let enable_block_builder = config.quic_plugin.enable_block_builder;
         log::info!("Quic plugin config correctly loaded");
         solana_logger::setup_with_default(&config.quic_plugin.log_level);
         let quic_server = QuicServer::new(config.quic_plugin).map_err(|_| {
             GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
         })?;
+        if enable_block_builder {
+            let (sx, rx) = std::sync::mpsc::channel();
+            start_block_building_thread(
+                rx,
+                quic_server.data_channel_sender.clone(),
+                compression_type,
+            );
+            self.block_builder_channel = Some(sx);
+        }
         self.quic_server = Some(quic_server);
 
         Ok(())
@@ -75,15 +88,21 @@ impl GeyserPlugin for QuicGeyserPlugin {
         };
         let pubkey: Pubkey = Pubkey::try_from(account_info.pubkey).expect("valid pubkey");
 
+        let channel_message = ChannelMessage::Account(
+            AccountData {
+                pubkey,
+                account,
+                write_version: account_info.write_version,
+            },
+            slot,
+        );
+
+        if let Some(block_channel) = &self.block_builder_channel {
+            let _ = block_channel.send(channel_message.clone());
+        }
+
         quic_server
-            .send_message(ChannelMessage::Account(
-                AccountData {
-                    pubkey,
-                    account,
-                    write_version: account_info.write_version,
-                },
-                slot,
-            ))
+            .send_message(channel_message)
             .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
         Ok(())
     }
@@ -108,6 +127,11 @@ impl GeyserPlugin for QuicGeyserPlugin {
             SlotStatus::Confirmed => CommitmentConfig::confirmed(),
         };
         let slot_message = ChannelMessage::Slot(slot, parent.unwrap_or_default(), commitment_level);
+
+        if let Some(block_channel) = &self.block_builder_channel {
+            let _ = block_channel.send(slot_message.clone());
+        }
+
         quic_server
             .send_message(slot_message)
             .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
@@ -173,6 +197,11 @@ impl GeyserPlugin for QuicGeyserPlugin {
         };
 
         let transaction_message = ChannelMessage::Transaction(Box::new(transaction));
+
+        if let Some(block_channel) = &self.block_builder_channel {
+            let _ = block_channel.send(transaction_message.clone());
+        }
+
         quic_server
             .send_message(transaction_message)
             .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
@@ -206,8 +235,14 @@ impl GeyserPlugin for QuicGeyserPlugin {
             entries_count: blockinfo.entry_count,
         };
 
+        let block_meta_message = ChannelMessage::BlockMeta(block_meta);
+
+        if let Some(block_channel) = &self.block_builder_channel {
+            let _ = block_channel.send(block_meta_message.clone());
+        }
+
         quic_server
-            .send_message(ChannelMessage::BlockMeta(block_meta))
+            .send_message(block_meta_message)
             .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
         Ok(())
     }
