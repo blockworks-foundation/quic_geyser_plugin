@@ -551,7 +551,7 @@ fn create_dispatching_thread(
                             account.write_version,
                         );
 
-                        (Message::AccountMsg(geyser_account), 4)
+                        (Message::AccountMsg(geyser_account), 3)
                     }
                     ChannelMessage::Slot(slot, parent, commitment_config) => (
                         Message::SlotMsg(SlotMeta {
@@ -565,6 +565,7 @@ fn create_dispatching_thread(
                     ChannelMessage::Transaction(transaction) => {
                         (Message::TransactionMsg(transaction), 3)
                     }
+                    ChannelMessage::Block(block) => (Message::BlockMsg(block), 2),
                 };
                 let binary =
                     bincode::serialize(&message).expect("Message should be serializable in binary");

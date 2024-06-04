@@ -1,10 +1,24 @@
-use std::{collections::{BTreeMap, HashMap}, sync::mpsc::{Receiver, Sender}};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::mpsc::{Receiver, Sender},
+};
 
 use itertools::Itertools;
-use quic_geyser_common::{channel_message::{AccountData, ChannelMessage}, compression::CompressionType, message::Message, types::{account::Account, block::Block, block_meta::BlockMeta, slot_identifier::SlotIdentifier, transaction::Transaction}};
+use quic_geyser_common::{
+    channel_message::{AccountData, ChannelMessage},
+    compression::CompressionType,
+    types::{
+        account::Account, block::Block, block_meta::BlockMeta, slot_identifier::SlotIdentifier,
+        transaction::Transaction,
+    },
+};
 use solana_sdk::pubkey::Pubkey;
 
-pub fn start_block_building_thread(channel_messages: Receiver<ChannelMessage>, output: Sender<Message>, compression_type: CompressionType) {
+pub fn start_block_building_thread(
+    channel_messages: Receiver<ChannelMessage>,
+    output: Sender<ChannelMessage>,
+    compression_type: CompressionType,
+) {
     std::thread::spawn(move || {
         build_blocks(channel_messages, output, compression_type);
     });
@@ -17,7 +31,11 @@ struct PartialBlock {
     account_updates: HashMap<Pubkey, AccountData>,
 }
 
-pub fn build_blocks(channel_messages: Receiver<ChannelMessage>, output: Sender<Message>, compression_type: CompressionType) {
+pub fn build_blocks(
+    channel_messages: Receiver<ChannelMessage>,
+    output: Sender<ChannelMessage>,
+    compression_type: CompressionType,
+) {
     let mut partially_build_blocks = BTreeMap::<u64, PartialBlock>::new();
     while let Ok(channel_message) = channel_messages.recv() {
         match channel_message {
@@ -36,23 +54,26 @@ pub fn build_blocks(channel_messages: Receiver<ChannelMessage>, output: Sender<M
                     }
                 };
                 let update = match partial_block.account_updates.get(&account_data.pubkey) {
-                    Some(prev_update) => {
-                        prev_update.write_version < account_data.write_version
-                    },
-                    None => {
-                        true
-                    },
+                    Some(prev_update) => prev_update.write_version < account_data.write_version,
+                    None => true,
                 };
                 if update {
-                    partial_block.account_updates.insert(account_data.pubkey, account_data);
+                    partial_block
+                        .account_updates
+                        .insert(account_data.pubkey, account_data);
                 }
-            },
+            }
             ChannelMessage::Slot(slot, _parent_slot, commitment) => {
                 if commitment.is_confirmed() || commitment.is_finalized() {
                     // dispactch partially build blocks if not already dispatched
-                    dispatch_partial_block(&mut partially_build_blocks, slot, &output, compression_type);
+                    dispatch_partial_block(
+                        &mut partially_build_blocks,
+                        slot,
+                        &output,
+                        compression_type,
+                    );
                 }
-            },
+            }
             ChannelMessage::BlockMeta(meta) => {
                 let slot = meta.slot;
                 if let Some(lowest) = partially_build_blocks.first_entry() {
@@ -78,9 +99,14 @@ pub fn build_blocks(channel_messages: Receiver<ChannelMessage>, output: Sender<M
                     meta_tx_count == partial_block.transactions.len() as u64
                 };
                 if dispatch {
-                    dispatch_partial_block(&mut partially_build_blocks, slot, &output, compression_type);
+                    dispatch_partial_block(
+                        &mut partially_build_blocks,
+                        slot,
+                        &output,
+                        compression_type,
+                    );
                 }
-            },
+            }
             ChannelMessage::Transaction(transaction) => {
                 let slot = transaction.slot_identifier.slot;
                 if let Some(lowest) = partially_build_blocks.first_entry() {
@@ -99,51 +125,78 @@ pub fn build_blocks(channel_messages: Receiver<ChannelMessage>, output: Sender<M
                     };
                     partial_block.transactions.push(*transaction);
 
-                    let meta_transactions_count = partial_block.meta.as_ref().map(|x| x.executed_transaction_count);
+                    let meta_transactions_count = partial_block
+                        .meta
+                        .as_ref()
+                        .map(|x| x.executed_transaction_count);
 
-                    (partial_block.transactions.len() as u64, meta_transactions_count)
+                    (
+                        partial_block.transactions.len() as u64,
+                        meta_transactions_count,
+                    )
                 };
 
                 if Some(transactions_length_in_pb) == meta_transactions_count {
                     // check if all transactions are taken into account
-                    dispatch_partial_block(&mut partially_build_blocks, slot, &output, compression_type);
+                    dispatch_partial_block(
+                        &mut partially_build_blocks,
+                        slot,
+                        &output,
+                        compression_type,
+                    );
                 }
-            },
+            }
+            ChannelMessage::Block(_) => {
+                unreachable!()
+            }
         }
     }
 }
 
-fn dispatch_partial_block(partial_blocks: &mut BTreeMap::<u64, PartialBlock>, slot: u64, output: &Sender<Message>, compression_type: CompressionType) {
+fn dispatch_partial_block(
+    partial_blocks: &mut BTreeMap<u64, PartialBlock>,
+    slot: u64,
+    output: &Sender<ChannelMessage>,
+    compression_type: CompressionType,
+) {
     if let Some(dispatched_partial_block) = partial_blocks.remove(&slot) {
         let Some(meta) = dispatched_partial_block.meta else {
-            log::error!("Block was dispactched without any meta data/ cannot dispatch the block {slot}");
+            log::error!(
+                "Block was dispactched without any meta data/ cannot dispatch the block {slot}"
+            );
             return;
         };
         let transactions = dispatched_partial_block.transactions;
         if transactions.len() != meta.executed_transaction_count as usize {
-            log::error!("for block at slot {slot} transaction size mismatch {}!={}", transactions.len(), meta.executed_transaction_count);
+            log::error!(
+                "for block at slot {slot} transaction size mismatch {}!={}",
+                transactions.len(),
+                meta.executed_transaction_count
+            );
         }
-        let accounts = dispatched_partial_block.account_updates.iter().map(|(pubkey, account_data)| {
-            let data_length = account_data.account.data.len() as u64;
-            Account {
-                slot_identifier: SlotIdentifier {
-                    slot,
-                },
-                pubkey: *pubkey,
-                owner: account_data.account.owner,
-                lamports:  account_data.account.lamports,
-                executable:  account_data.account.executable,
-                rent_epoch:  account_data.account.rent_epoch,
-                write_version:  account_data.write_version,
-                data:  account_data.account.data.clone(),
-                compression_type: CompressionType::None,
-                data_length,
-            }
-        }).collect_vec();
+        let accounts = dispatched_partial_block
+            .account_updates
+            .iter()
+            .map(|(pubkey, account_data)| {
+                let data_length = account_data.account.data.len() as u64;
+                Account {
+                    slot_identifier: SlotIdentifier { slot },
+                    pubkey: *pubkey,
+                    owner: account_data.account.owner,
+                    lamports: account_data.account.lamports,
+                    executable: account_data.account.executable,
+                    rent_epoch: account_data.account.rent_epoch,
+                    write_version: account_data.write_version,
+                    data: account_data.account.data.clone(),
+                    compression_type: CompressionType::None,
+                    data_length,
+                }
+            })
+            .collect_vec();
         match Block::build(meta, transactions, accounts, compression_type) {
             Ok(block) => {
-                output.send(Message::Block(block)).unwrap();
-            },
+                output.send(ChannelMessage::Block(block)).unwrap();
+            }
             Err(e) => {
                 log::error!("block building failed because of error: {e}")
             }
