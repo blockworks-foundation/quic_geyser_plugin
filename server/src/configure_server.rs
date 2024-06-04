@@ -47,6 +47,8 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     config.set_active_connection_id_limit(max_number_of_connections);
     config.set_max_ack_delay(maximum_ack_delay);
     config.set_ack_delay_exponent(ack_exponent);
+    config.set_initial_congestion_window_packets(1024);
+    config.set_max_stream_window(256 * 1024 * 1024);
     config.enable_pacing(false);
     Ok(config)
 }

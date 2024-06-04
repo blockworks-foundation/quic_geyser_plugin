@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     net::SocketAddr,
     sync::{
-        atomic::AtomicU64,
+        atomic::{AtomicBool, AtomicU64},
         mpsc::{self, Sender},
         Arc, Mutex, RwLock,
     },
@@ -327,6 +327,7 @@ fn create_client_task(
         let number_of_readable_streams = Arc::new(AtomicU64::new(0));
         let number_of_writable_streams = Arc::new(AtomicU64::new(0));
         let messages_added = Arc::new(AtomicU64::new(0));
+        let quit = Arc::new(AtomicBool::new(false));
 
         {
             let number_of_loops = number_of_loops.clone();
@@ -335,33 +336,37 @@ fn create_client_task(
             let number_of_readable_streams = number_of_readable_streams.clone();
             let number_of_writable_streams = number_of_writable_streams.clone();
             let messages_added = messages_added.clone();
-            std::thread::spawn(move || loop {
-                std::thread::sleep(Duration::from_secs(1));
-                println!("---------------------------------");
-                println!(
-                    "number of loop : {}",
-                    number_of_loops.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    "number of packets read : {}",
-                    number_of_meesages_from_network.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    "number of packets write : {}",
-                    number_of_meesages_to_network.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    "number_of_readable_streams : {}",
-                    number_of_readable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    "number_of_writable_streams : {}",
-                    number_of_writable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    "messages_added : {}",
-                    messages_added.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
+            let quit = quit.clone();
+            std::thread::spawn(move || {
+                while !quit.load(std::sync::atomic::Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_secs(1));
+                    println!("---------------------------------");
+                    println!(
+                        "number of loop : {}",
+                        number_of_loops.swap(0, std::sync::atomic::Ordering::Relaxed)
+                    );
+                    println!(
+                        "number of packets read : {}",
+                        number_of_meesages_from_network
+                            .swap(0, std::sync::atomic::Ordering::Relaxed)
+                    );
+                    println!(
+                        "number of packets write : {}",
+                        number_of_meesages_to_network.swap(0, std::sync::atomic::Ordering::Relaxed)
+                    );
+                    println!(
+                        "number_of_readable_streams : {}",
+                        number_of_readable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
+                    );
+                    println!(
+                        "number_of_writable_streams : {}",
+                        number_of_writable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
+                    );
+                    println!(
+                        "messages_added : {}",
+                        messages_added.swap(0, std::sync::atomic::Ordering::Relaxed)
+                    );
+                }
             });
         }
 
@@ -511,6 +516,7 @@ fn create_client_task(
                 break;
             }
         }
+        quit.store(true, std::sync::atomic::Ordering::Relaxed);
     });
 }
 
