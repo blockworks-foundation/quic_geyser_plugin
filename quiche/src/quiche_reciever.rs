@@ -20,7 +20,7 @@ pub fn recv_message(
         None => vec![],
     };
     loop {
-        let mut buf = [0; MAX_DATAGRAM_SIZE]; // 10kk buffer size
+        let mut buf = [0; MAX_DATAGRAM_SIZE];
         match connection.stream_recv(stream_id, &mut buf) {
             Ok((read, fin)) => {
                 log::trace!("read {} on stream {}", read, stream_id);
