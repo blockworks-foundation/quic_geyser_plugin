@@ -377,7 +377,7 @@ mod tests {
                 true,
                 100,
             ) {
-                println!("Server loop closed by error : {e}");
+                log::error!("Server loop closed by error : {e}");
             }
         });
 
@@ -399,7 +399,7 @@ mod tests {
                 sx_recv_queue,
                 is_connected,
             ) {
-                println!("client stopped with error {e}");
+                log::error!("client stopped with error {e}");
             }
         });
         client_sx_queue

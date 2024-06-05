@@ -133,12 +133,7 @@ pub async fn main() {
     sleep(Duration::from_secs(1));
     println!("Subscribing");
     client
-        .subscribe(vec![
-            Filter::AccountsAll,
-            Filter::TransactionsAll,
-            Filter::Slot,
-            Filter::BlockMeta,
-        ])
+        .subscribe(vec![Filter::BlockAll, Filter::Slot, Filter::BlockMeta])
         .await
         .unwrap();
     println!("Subscribed");
@@ -193,7 +188,7 @@ pub async fn main() {
                 transaction_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             quic_geyser_common::message::Message::BlockMsg(block) => {
-                log::trace!("got block notification of slot {}, number_of_transactions : {}, number_of_accounts: {}", block.meta.slot, block.get_transactions().unwrap().len(), block.get_accounts().unwrap().len());
+                log::info!("got block notification of slot {}, number_of_transactions : {}, number_of_accounts: {}", block.meta.slot, block.get_transactions().unwrap().len(), block.get_accounts().unwrap().len());
                 block_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 block_slot.store(block.meta.slot, std::sync::atomic::Ordering::Relaxed);
             }

@@ -340,29 +340,29 @@ fn create_client_task(
             std::thread::spawn(move || {
                 while !quit.load(std::sync::atomic::Ordering::Relaxed) {
                     std::thread::sleep(Duration::from_secs(1));
-                    println!("---------------------------------");
-                    println!(
+                    log::info!("---------------------------------");
+                    log::info!(
                         "number of loop : {}",
                         number_of_loops.swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
-                    println!(
+                    log::info!(
                         "number of packets read : {}",
                         number_of_meesages_from_network
                             .swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
-                    println!(
+                    log::info!(
                         "number of packets write : {}",
                         number_of_meesages_to_network.swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
-                    println!(
+                    log::info!(
                         "number_of_readable_streams : {}",
                         number_of_readable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
-                    println!(
+                    log::info!(
                         "number_of_writable_streams : {}",
                         number_of_writable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
-                    println!(
+                    log::info!(
                         "messages_added : {}",
                         messages_added.swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
@@ -415,12 +415,14 @@ fn create_client_task(
                 }
             }
 
-            for stream_id in connection.writable() {
-                number_of_writable_streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                handle_writable(&mut connection, &mut partial_responses, stream_id);
-            }
+            if !connection.is_closed()
+                && (connection.is_established() || connection.is_in_early_data())
+            {
+                for stream_id in connection.writable() {
+                    number_of_writable_streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    handle_writable(&mut connection, &mut partial_responses, stream_id);
+                }
 
-            if !connection.is_closed() && connection.is_established() {
                 while partial_responses.len() < max_allowed_partial_responses {
                     let close = match message_channel.try_recv() {
                         Ok((message, priority)) => {

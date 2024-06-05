@@ -267,7 +267,7 @@ mod tests {
             })
         };
         // wait for server to start
-        sleep(Duration::from_secs(1));
+        sleep(Duration::from_millis(100));
 
         // server started
         let (client, mut reciever) = Client::new(
@@ -283,6 +283,7 @@ mod tests {
         .await
         .unwrap();
         client.subscribe(vec![Filter::AccountsAll]).await.unwrap();
+        sleep(Duration::from_millis(100));
 
         let mut cnt = 0;
         for message_sent in msgs {

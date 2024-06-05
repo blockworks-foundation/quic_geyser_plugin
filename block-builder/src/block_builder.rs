@@ -195,6 +195,7 @@ fn dispatch_partial_block(
             .collect_vec();
         match Block::build(meta, transactions, accounts, compression_type) {
             Ok(block) => {
+                log::info!("Dispatching block for slot {}", slot);
                 output.send(ChannelMessage::Block(block)).unwrap();
             }
             Err(e) => {
