@@ -7,7 +7,7 @@ use quic_geyser_common::{
 
 use super::quiche_server_loop::server_loop;
 pub struct QuicServer {
-    data_channel_sender: mpsc::Sender<ChannelMessage>,
+    pub data_channel_sender: mpsc::Sender<ChannelMessage>,
     pub quic_plugin_config: ConfigQuicPlugin,
 }
 
@@ -19,7 +19,6 @@ impl Debug for QuicServer {
 
 impl QuicServer {
     pub fn new(config: ConfigQuicPlugin) -> anyhow::Result<Self> {
-        let max_number_of_streams = config.quic_parameters.max_number_of_streams_per_client;
         let server_config = configure_server(config.quic_parameters)?;
         let socket = config.address;
         let compression_type = config.compression_parameters.compression_type;
@@ -33,7 +32,6 @@ impl QuicServer {
                 data_channel_tx,
                 compression_type,
                 true,
-                max_number_of_streams,
             ) {
                 panic!("Server loop closed by error : {e}");
             }

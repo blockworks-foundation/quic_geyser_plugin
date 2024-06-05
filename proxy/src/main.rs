@@ -58,6 +58,7 @@ pub fn main() -> anyhow::Result<()> {
         number_of_retries: 100,
         allow_accounts: true,
         allow_accounts_at_startup: false,
+        enable_block_builder: false,
     };
 
     let (server_sender, server_reciever) = std::sync::mpsc::channel::<ChannelMessage>();
@@ -94,7 +95,7 @@ pub fn main() -> anyhow::Result<()> {
             quic_geyser_common::message::Message::SlotMsg(slot_message) => ChannelMessage::Slot(
                 slot_message.slot,
                 slot_message.parent,
-                slot_message.commitment_level,
+                slot_message.commitment_config,
             ),
             quic_geyser_common::message::Message::BlockMetaMsg(block_meta_message) => {
                 ChannelMessage::BlockMeta(BlockMeta {

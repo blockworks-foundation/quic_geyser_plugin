@@ -147,7 +147,7 @@ pub fn create_quiche_client_thread(
         let mut instance = Instant::now();
 
         'client: loop {
-            poll.poll(&mut events, Some(Duration::from_micros(100)))
+            poll.poll(&mut events, Some(Duration::from_millis(10)))
                 .unwrap();
             if events.is_empty() {
                 connection.on_timeout();
@@ -233,7 +233,10 @@ pub fn create_quiche_client_thread(
             }
 
             for stream_id in connection.writable() {
-                handle_writable(&mut connection, &mut partial_responses, stream_id);
+                if let Err(e) = handle_writable(&mut connection, &mut partial_responses, stream_id)
+                {
+                    log::error!("Error writing message on writable stream : {e:?}");
+                }
             }
 
             if connection.is_closed() {
@@ -303,7 +306,7 @@ mod tests {
         let message_1 = ChannelMessage::Slot(
             3,
             2,
-            solana_sdk::commitment_config::CommitmentLevel::Confirmed,
+            solana_sdk::commitment_config::CommitmentConfig::confirmed(),
         );
         let message_2 = ChannelMessage::Account(
             AccountData {
@@ -375,9 +378,8 @@ mod tests {
                 rx_sent_queue,
                 CompressionType::Lz4Fast(8),
                 true,
-                100,
             ) {
-                println!("Server loop closed by error : {e}");
+                log::error!("Server loop closed by error : {e}");
             }
         });
 
@@ -399,7 +401,7 @@ mod tests {
                 sx_recv_queue,
                 is_connected,
             ) {
-                println!("client stopped with error {e}");
+                log::error!("client stopped with error {e}");
             }
         });
         client_sx_queue
@@ -424,7 +426,7 @@ mod tests {
             Message::SlotMsg(SlotMeta {
                 slot: 3,
                 parent: 2,
-                commitment_level: solana_sdk::commitment_config::CommitmentLevel::Confirmed
+                commitment_config: solana_sdk::commitment_config::CommitmentConfig::confirmed()
             })
         );
 

@@ -9,7 +9,7 @@ use cli::Args;
 use quic_geyser_client::non_blocking::client::Client;
 use quic_geyser_common::{filters::Filter, types::connections_parameters::ConnectionParameters};
 use solana_rpc_client::rpc_client::RpcClient;
-use solana_sdk::commitment_config::{CommitmentConfig, CommitmentLevel};
+use solana_sdk::commitment_config::CommitmentConfig;
 
 pub mod cli;
 
@@ -51,11 +51,13 @@ pub async fn main() {
     let account_notification = Arc::new(AtomicU64::new(0));
     let blockmeta_notifications = Arc::new(AtomicU64::new(0));
     let transaction_notifications = Arc::new(AtomicU64::new(0));
+    let block_notifications = Arc::new(AtomicU64::new(0));
 
     let cluster_slot = Arc::new(AtomicU64::new(0));
     let account_slot = Arc::new(AtomicU64::new(0));
     let slot_slot = Arc::new(AtomicU64::new(0));
     let blockmeta_slot = Arc::new(AtomicU64::new(0));
+    let block_slot = Arc::new(AtomicU64::new(0));
 
     if let Some(rpc_url) = args.rpc_url {
         let cluster_slot = cluster_slot.clone();
@@ -76,11 +78,13 @@ pub async fn main() {
         let blockmeta_notifications = blockmeta_notifications.clone();
         let transaction_notifications = transaction_notifications.clone();
         let total_accounts_size = total_accounts_size.clone();
+        let block_notifications = block_notifications.clone();
 
         let cluster_slot = cluster_slot.clone();
         let account_slot = account_slot.clone();
         let slot_slot = slot_slot.clone();
         let blockmeta_slot = blockmeta_slot.clone();
+        let block_slot = block_slot.clone();
         std::thread::spawn(move || {
             let mut max_byte_transfer_rate = 0;
             loop {
@@ -116,8 +120,12 @@ pub async fn main() {
                     " Transactions notified : {}",
                     transaction_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
                 );
+                println!(
+                    " Blocks notified : {}",
+                    block_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
+                );
 
-                println!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {} ", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed));
+                println!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {}, Block slot: {}", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed), block_slot.load(std::sync::atomic::Ordering::Relaxed));
             }
         });
     }
@@ -126,10 +134,10 @@ pub async fn main() {
     println!("Subscribing");
     client
         .subscribe(vec![
-            Filter::AccountsAll,
-            Filter::TransactionsAll,
+            Filter::BlockAll,
             Filter::Slot,
             Filter::BlockMeta,
+            Filter::AccountsAll,
         ])
         .await
         .unwrap();
@@ -168,7 +176,7 @@ pub async fn main() {
             quic_geyser_common::message::Message::SlotMsg(slot) => {
                 log::trace!("got slot notification : {} ", slot.slot);
                 slot_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if slot.commitment_level == CommitmentLevel::Processed {
+                if slot.commitment_config == CommitmentConfig::processed() {
                     slot_slot.store(slot.slot, std::sync::atomic::Ordering::Relaxed);
                 }
             }
@@ -184,11 +192,13 @@ pub async fn main() {
                 );
                 transaction_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
+            quic_geyser_common::message::Message::BlockMsg(block) => {
+                log::info!("got block notification of slot {}, number_of_transactions : {}, number_of_accounts: {}", block.meta.slot, block.get_transactions().unwrap().len(), block.get_accounts().unwrap().len());
+                block_notifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                block_slot.store(block.meta.slot, std::sync::atomic::Ordering::Relaxed);
+            }
             quic_geyser_common::message::Message::Filters(_) => {
                 // Not supported
-            }
-            quic_geyser_common::message::Message::Ping => {
-                // not supported ping
             }
         }
     }

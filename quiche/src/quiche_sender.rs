@@ -6,6 +6,7 @@ pub fn convert_to_binary(message: &Message) -> anyhow::Result<Vec<u8>> {
     Ok(bincode::serialize(&message)?)
 }
 
+// return if connection has finished writing
 pub fn send_message(
     connection: &mut Connection,
     partial_responses: &mut PartialResponses,
@@ -36,31 +37,38 @@ pub fn handle_writable(
     conn: &mut quiche::Connection,
     partial_responses: &mut PartialResponses,
     stream_id: u64,
-) -> bool {
+) -> std::result::Result<(), quiche::Error> {
     log::trace!("{} stream {} is writable", conn.trace_id(), stream_id);
 
-    if !partial_responses.contains_key(&stream_id) {
-        return false;
-    }
-
-    let resp = partial_responses
-        .get_mut(&stream_id)
-        .expect("should have a stream id");
+    let resp = match partial_responses.get_mut(&stream_id) {
+        Some(s) => s,
+        None => {
+            // stream has finished
+            let _ = conn.stream_send(stream_id, b"", true);
+            return Ok(());
+        }
+    };
     let body = &resp.binary;
 
     let written = match conn.stream_send(stream_id, body, true) {
         Ok(v) => v,
-        Err(quiche::Error::Done) => 0,
+        Err(quiche::Error::Done) => {
+            // done writing
+            return Ok(());
+        }
         Err(e) => {
             partial_responses.remove(&stream_id);
 
-            log::error!("{} stream send failed {:?}", conn.trace_id(), e);
-            return false;
+            log::error!(
+                "{} stream id :{stream_id} send failed {e:?}",
+                conn.trace_id()
+            );
+            return Err(e);
         }
     };
 
     if written == 0 {
-        return false;
+        return Ok(());
     }
 
     if written == resp.binary.len() {
@@ -77,5 +85,5 @@ pub fn handle_writable(
         resp.binary = resp.binary[written..].to_vec();
         resp.written += written;
     }
-    true
+    Ok(())
 }

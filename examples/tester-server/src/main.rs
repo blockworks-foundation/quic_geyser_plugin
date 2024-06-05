@@ -31,6 +31,7 @@ pub fn main() {
         number_of_retries: 100,
         allow_accounts: true,
         allow_accounts_at_startup: false,
+        enable_block_builder: true,
     };
     let quic_server = QuicServer::new(config).unwrap();
 

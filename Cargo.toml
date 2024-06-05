@@ -10,6 +10,7 @@ members = [
     "examples/tester-client",
     "examples/tester-server",
     "proxy",
+    "block-builder",
 ]
 
 [workspace.package]
@@ -62,6 +63,7 @@ quic-geyser-plugin = {path = "plugin", version="0.1.3"}
 quic-geyser-server = {path = "server", version="0.1.3"}
 quic-geyser-quiche-utils = {path = "quiche", version = "0.1.3"}
 quic-geyser-blocking-client = {path = "blocking_client", version = "0.1.3"}
+quic-geyser-block-builder = {path = "block-builder", version = "0.1.3"}
 
 [profile.release]
 debug = true

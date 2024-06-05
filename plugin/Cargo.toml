@@ -25,6 +25,7 @@ thiserror = {workspace = true}
 
 quic-geyser-common = { workspace = true }
 quic-geyser-server = { workspace = true }
+quic-geyser-block-builder = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }

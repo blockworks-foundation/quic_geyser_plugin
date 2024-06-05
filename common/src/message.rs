@@ -4,6 +4,7 @@ use crate::{
     filters::Filter,
     types::{
         account::Account,
+        block::Block,
         block_meta::{BlockMeta, SlotMeta},
         transaction::Transaction,
     },
@@ -19,6 +20,6 @@ pub enum Message {
     SlotMsg(SlotMeta),
     BlockMetaMsg(BlockMeta),
     TransactionMsg(Box<Transaction>),
+    BlockMsg(Block),
     Filters(Vec<Filter>), // sent from client to server
-    Ping,
 }

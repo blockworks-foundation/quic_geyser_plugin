@@ -241,6 +241,7 @@ mod tests {
                     log_level: "debug".to_string(),
                     allow_accounts: true,
                     allow_accounts_at_startup: false,
+                    enable_block_builder: false,
                 };
                 let quic_server = QuicServer::new(config).unwrap();
                 // wait for client to connect and subscribe
@@ -266,7 +267,7 @@ mod tests {
             })
         };
         // wait for server to start
-        sleep(Duration::from_secs(1));
+        sleep(Duration::from_millis(100));
 
         // server started
         let (client, mut reciever) = Client::new(
@@ -282,6 +283,7 @@ mod tests {
         .await
         .unwrap();
         client.subscribe(vec![Filter::AccountsAll]).await.unwrap();
+        sleep(Duration::from_millis(100));
 
         let mut cnt = 0;
         for message_sent in msgs {

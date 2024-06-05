@@ -14,6 +14,7 @@ pub enum Filter {
     BlockMeta,
     Transaction(Signature),
     TransactionsAll,
+    BlockAll,
 }
 
 impl Filter {
@@ -33,6 +34,7 @@ impl Filter {
                 }
             }
             Filter::TransactionsAll => matches!(message, ChannelMessage::Transaction(_)),
+            Filter::BlockAll => matches!(message, ChannelMessage::Block(_)),
         }
     }
 }
