@@ -233,7 +233,10 @@ pub fn create_quiche_client_thread(
             }
 
             for stream_id in connection.writable() {
-                handle_writable(&mut connection, &mut partial_responses, stream_id);
+                if let Err(e) = handle_writable(&mut connection, &mut partial_responses, stream_id)
+                {
+                    log::error!("Error writing message on writable stream : {e:?}");
+                }
             }
 
             if connection.is_closed() {
@@ -375,7 +378,6 @@ mod tests {
                 rx_sent_queue,
                 CompressionType::Lz4Fast(8),
                 true,
-                100,
             ) {
                 log::error!("Server loop closed by error : {e}");
             }

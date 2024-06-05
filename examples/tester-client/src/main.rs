@@ -133,7 +133,12 @@ pub async fn main() {
     sleep(Duration::from_secs(1));
     println!("Subscribing");
     client
-        .subscribe(vec![Filter::BlockAll, Filter::Slot, Filter::BlockMeta])
+        .subscribe(vec![
+            Filter::BlockAll,
+            Filter::Slot,
+            Filter::BlockMeta,
+            Filter::AccountsAll,
+        ])
         .await
         .unwrap();
     println!("Subscribed");

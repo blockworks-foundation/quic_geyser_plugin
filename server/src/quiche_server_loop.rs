@@ -412,7 +412,11 @@ fn create_client_task(
             {
                 for stream_id in connection.writable() {
                     number_of_writable_streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    handle_writable(&mut connection, &mut partial_responses, stream_id);
+                    if let Err(e) =
+                        handle_writable(&mut connection, &mut partial_responses, stream_id)
+                    {
+                        log::error!("Error writing {e:?}");
+                    }
                 }
 
                 while partial_responses.len() < max_allowed_partial_responses {
@@ -433,13 +437,22 @@ fn create_client_task(
                                 true
                             } else {
                                 messages_added.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                send_message(
+                                match send_message(
                                     &mut connection,
                                     &mut partial_responses,
                                     stream_id,
                                     &message,
-                                )
-                                .is_err()
+                                ) {
+                                    Ok(_) => false,
+                                    Err(quiche::Error::Done) => {
+                                        // done writing / queue is full
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        log::error!("error sending message : {e:?}");
+                                        true
+                                    }
+                                }
                             }
                         }
                         Err(e) => {
