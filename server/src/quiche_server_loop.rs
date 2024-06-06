@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, AtomicU64},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize},
         mpsc::{self, Sender},
         Arc, Mutex, RwLock,
     },
@@ -32,6 +32,7 @@ use quic_geyser_quiche_utils::{
 struct DispatchingData {
     pub sender: Sender<(Vec<u8>, u8)>,
     pub filters: Arc<RwLock<Vec<Filter>>>,
+    pub messages_in_queue: Arc<AtomicUsize>,
 }
 
 type DispachingConnections = Arc<Mutex<HashMap<ConnectionId<'static>, DispatchingData>>>;
@@ -208,6 +209,7 @@ pub fn server_loop(
 
                 let (client_sender, client_reciver) = mio_channel::channel();
                 let (client_message_sx, client_message_rx) = mpsc::channel();
+                let messages_in_queue = Arc::new(AtomicUsize::new(0));
 
                 let filters = Arc::new(RwLock::new(Vec::new()));
                 create_client_task(
@@ -218,6 +220,7 @@ pub fn server_loop(
                     filters.clone(),
                     maximum_concurrent_streams_id,
                     stop_laggy_client,
+                    messages_in_queue.clone(),
                 );
                 let mut lk = dispatching_connections.lock().unwrap();
                 lk.insert(
@@ -225,6 +228,7 @@ pub fn server_loop(
                     DispatchingData {
                         sender: client_message_sx,
                         filters,
+                        messages_in_queue,
                     },
                 );
                 clients.insert(scid, client_sender);
@@ -295,6 +299,7 @@ fn create_client_task(
     filters: Arc<RwLock<Vec<Filter>>>,
     maximum_concurrent_streams_id: u64,
     stop_laggy_client: bool,
+    messages_in_queue: Arc<AtomicUsize>,
 ) {
     std::thread::spawn(move || {
         let mut partial_responses = PartialResponses::new();
@@ -328,6 +333,7 @@ fn create_client_task(
             let number_of_readable_streams = number_of_readable_streams.clone();
             let number_of_writable_streams = number_of_writable_streams.clone();
             let messages_added = messages_added.clone();
+            let messages_in_queue = messages_in_queue.clone();
             let quit = quit.clone();
             std::thread::spawn(move || {
                 while !quit.load(std::sync::atomic::Ordering::Relaxed) {
@@ -357,6 +363,10 @@ fn create_client_task(
                     log::info!(
                         "messages_added : {}",
                         messages_added.swap(0, std::sync::atomic::Ordering::Relaxed)
+                    );
+                    log::info!(
+                        "messages in queue to be sent : {}",
+                        messages_in_queue.load(std::sync::atomic::Ordering::Relaxed)
                     );
                 }
             });
@@ -422,6 +432,7 @@ fn create_client_task(
                 while partial_responses.len() < max_allowed_partial_responses {
                     let close = match message_channel.try_recv() {
                         Ok((message, priority)) => {
+                            messages_in_queue.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                             let stream_id = next_stream;
                             next_stream =
                                 get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
@@ -576,6 +587,8 @@ fn create_dispatching_thread(
                     bincode::serialize(&message).expect("Message should be serializable in binary");
                 for id in dispatching_connections.iter() {
                     let data = dispatching_connections_lk.get(id).unwrap();
+                    data.messages_in_queue
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if data.sender.send((binary.clone(), priority)).is_err() {
                         // client is closed
                         dispatching_connections_lk.remove(id);

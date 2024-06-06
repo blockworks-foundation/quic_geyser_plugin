@@ -12,6 +12,6 @@ pub struct Args {
     #[clap(short = 'l', long, default_value_t = 200)]
     pub account_data_size: u32,
 
-    #[clap(short, long, default_value_t = 1_000)]
-    pub max_lagging: u64,
+    #[clap(short = 's', long, default_value_t = 1_000)]
+    pub number_of_streams: u64,
 }

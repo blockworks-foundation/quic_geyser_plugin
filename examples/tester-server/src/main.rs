@@ -24,7 +24,10 @@ pub fn main() {
     let config = ConfigQuicPlugin {
         address: SocketAddr::from_str(format!("0.0.0.0:{}", args.port).as_str()).unwrap(),
         log_level: "info".to_string(),
-        quic_parameters: QuicParameters::default(),
+        quic_parameters: QuicParameters {
+            max_number_of_streams_per_client: args.number_of_streams,
+            ..Default::default()
+        },
         compression_parameters: CompressionParameters {
             compression_type: quic_geyser_common::compression::CompressionType::None,
         },

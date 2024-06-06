@@ -40,9 +40,15 @@ pub async fn main() {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
     println!("Connecting");
-    let (client, mut reciever) = Client::new(args.url, ConnectionParameters::default())
-        .await
-        .unwrap();
+    let (client, mut reciever) = Client::new(
+        args.url,
+        ConnectionParameters {
+            max_number_of_streams: args.number_of_streams,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     println!("Connected");
 
     let bytes_transfered = Arc::new(AtomicU64::new(0));
@@ -131,16 +137,16 @@ pub async fn main() {
     }
 
     sleep(Duration::from_secs(1));
+    let mut filters = vec![Filter::Slot, Filter::BlockMeta];
+
+    if args.blocks_instead_of_accounts {
+        filters.push(Filter::BlockAll);
+    } else {
+        filters.push(Filter::AccountsAll);
+    };
+
     println!("Subscribing");
-    client
-        .subscribe(vec![
-            Filter::BlockAll,
-            Filter::Slot,
-            Filter::BlockMeta,
-            Filter::AccountsAll,
-        ])
-        .await
-        .unwrap();
+    client.subscribe(filters).await.unwrap();
     println!("Subscribed");
 
     while let Some(message) = reciever.recv().await {
