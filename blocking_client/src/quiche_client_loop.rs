@@ -81,6 +81,7 @@ pub fn client_loop(
         'read: loop {
             match socket.recv_from(&mut buf) {
                 Ok((len, from)) => {
+                    log::debug!("received :{len} bytes from {from:?}");
                     let recv_info = quiche::RecvInfo {
                         to: socket.local_addr()?,
                         from,
@@ -154,13 +155,13 @@ pub fn create_quiche_client_thread(
             }
 
             // sending ping
-            if instance.elapsed() > Duration::from_secs(5) {
-                log::debug!("sending ping to the server");
+            if instance.elapsed() > Duration::from_secs(1) {
                 instance = Instant::now();
                 connection.on_timeout();
             }
 
             while let Ok((recv_info, mut buf)) = receiver.try_recv() {
+                log::debug!("recv_info : {} from {:?}", buf.len(), recv_info.from);
                 // Process potentially coalesced packets.
                 if let Err(e) = connection.recv(buf.as_mut_slice(), recv_info) {
                     match e {
@@ -185,9 +186,12 @@ pub fn create_quiche_client_thread(
             if connection.is_established() {
                 // io events
                 for stream_id in connection.readable() {
+                    log::debug!("reading stream: {stream_id:?}");
                     let message = recv_message(&mut connection, &mut read_streams, stream_id);
+                    log::debug!("read_streams : {read_streams:?}");
                     match message {
                         Ok(Some(message)) => {
+                            log::debug!("sending message : {message:?}");
                             if let Err(e) = message_recv_queue.send(message) {
                                 log::error!("Error sending message on the channel : {e}");
                             }
@@ -417,7 +421,7 @@ mod tests {
         sleep(Duration::from_millis(100));
         server_send_queue.send(message_4.clone()).unwrap();
         server_send_queue.send(message_5.clone()).unwrap();
-        sleep(Duration::from_millis(100));
+        sleep(Duration::from_millis(5000));
 
         let message_rx_1 = client_rx_queue.recv().unwrap();
         assert_eq!(

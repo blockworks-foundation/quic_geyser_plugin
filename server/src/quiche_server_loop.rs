@@ -302,7 +302,7 @@ fn create_client_task(
         let mut connection = connection;
         let mut instance = Instant::now();
         let mut closed = false;
-        let mut buf = [0; MAX_BUFFER_SIZE];
+        let mut buf = [0; MAX_DATAGRAM_SIZE];
 
         let mut poll = mio::Poll::new().unwrap();
         let mut events = mio::Events::with_capacity(1024);
@@ -495,11 +495,10 @@ fn create_client_task(
 
             let max_burst = connection.send_quantum();
             let mut total_send = 0;
-            let mut dst_info: Option<_> = None;
             while total_send < max_burst {
-                match connection.send(&mut buf[total_send..max_burst]) {
+                match connection.send(&mut buf[0..MAX_DATAGRAM_SIZE]) {
                     Ok((len, send_info)) => {
-                        let _ = dst_info.get_or_insert(send_info);
+                        sender.send((send_info, buf[..len].to_vec())).unwrap();
                         number_of_meesages_to_network
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         total_send += len;
@@ -517,15 +516,6 @@ fn create_client_task(
                         break;
                     }
                 };
-            }
-
-            if total_send > 0 {
-                sender
-                    .send((
-                        dst_info.expect("should have set the dst_info"),
-                        buf[..total_send].to_vec(),
-                    ))
-                    .unwrap();
             }
 
             if connection.is_closed() {
