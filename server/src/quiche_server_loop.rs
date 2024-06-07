@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     net::SocketAddr,
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize},
@@ -17,6 +17,7 @@ use ring::rand::SystemRandom;
 use quic_geyser_common::{
     channel_message::ChannelMessage,
     compression::CompressionType,
+    config::QuicParameters,
     defaults::{MAX_ALLOWED_PARTIAL_RESPONSES, MAX_DATAGRAM_SIZE},
     filters::Filter,
     message::Message,
@@ -29,6 +30,8 @@ use quic_geyser_quiche_utils::{
     quiche_utils::{get_next_unidi, mint_token, validate_token, write_to_socket, PartialResponses},
 };
 
+use crate::configure_server::configure_server;
+
 struct DispatchingData {
     pub sender: Sender<(Vec<u8>, u8)>,
     pub filters: Arc<RwLock<Vec<Filter>>>,
@@ -37,25 +40,36 @@ struct DispatchingData {
 
 type DispachingConnections = Arc<Mutex<HashMap<ConnectionId<'static>, DispatchingData>>>;
 
-const ACCEPTABLE_PACING_DELAY: Duration = Duration::from_millis(100);
-
-struct Packet {
-    pub buffer: Vec<u8>,
-    pub to: SocketAddr,
-}
+const MAX_BUFFER_SIZE: usize = 65535;
 
 pub fn server_loop(
-    mut config: quiche::Config,
+    quic_parameters: QuicParameters,
     socket_addr: SocketAddr,
     message_send_queue: mpsc::Receiver<ChannelMessage>,
     compression_type: CompressionType,
     stop_laggy_client: bool,
 ) -> anyhow::Result<()> {
     let maximum_concurrent_streams_id = u64::MAX;
+    let mut config = configure_server(quic_parameters)?;
 
     let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
     let mut poll = mio::Poll::new()?;
     let mut events = mio::Events::with_capacity(1024);
+
+    let pacing = if quic_parameters.enable_pacing {
+        match set_txtime_sockopt(&socket) {
+            Ok(_) => {
+                log::debug!("successfully set SO_TXTIME socket option");
+                true
+            }
+            Err(e) => {
+                log::debug!("setsockopt failed {:?}", e);
+                false
+            }
+        }
+    } else {
+        false
+    };
 
     poll.registry().register(
         &mut socket,
@@ -63,10 +77,17 @@ pub fn server_loop(
         mio::Interest::READABLE | mio::Interest::WRITABLE,
     )?;
 
-    let mut buf = [0; 65535];
+    let mut buf = [0; MAX_BUFFER_SIZE];
     let mut out = [0; MAX_DATAGRAM_SIZE];
 
     let local_addr = socket.local_addr()?;
+
+    let enable_gso = if quic_parameters.enable_gso {
+        detect_gso(&socket, MAX_DATAGRAM_SIZE)
+    } else {
+        false
+    };
+
     let rng = SystemRandom::new();
     let conn_id_seed = ring::hmac::Key::generate(ring::hmac::HMAC_SHA256, &rng).unwrap();
     let mut clients: HashMap<
@@ -74,15 +95,10 @@ pub fn server_loop(
         mio_channel::Sender<(quiche::RecvInfo, Vec<u8>)>,
     > = HashMap::new();
 
-    let (write_sender, write_reciver) = std::sync::mpsc::channel::<(quiche::SendInfo, Vec<u8>)>();
+    let (write_sender, mut write_reciver) = mio_channel::channel::<(quiche::SendInfo, Vec<u8>)>();
 
-    // poll.registry().register(
-    //     &mut write_reciver,
-    //     mio::Token(1),
-    //     mio::Interest::READABLE,
-    // )?;
-
-    let mut packets_to_send: BTreeMap<Instant, Packet> = BTreeMap::new();
+    poll.registry()
+        .register(&mut write_reciver, mio::Token(1), mio::Interest::READABLE)?;
 
     let dispatching_connections: DispachingConnections = Arc::new(Mutex::new(HashMap::<
         ConnectionId<'static>,
@@ -253,38 +269,16 @@ pub fn server_loop(
             };
         }
 
-        let instant = Instant::now();
-        // send remaining packets
-        // log::debug!("packets to send : {}", packets_to_send.len());
-        while let Some((to_send, packet)) = packets_to_send.first_key_value() {
-            if instant + ACCEPTABLE_PACING_DELAY <= *to_send {
-                break;
-            }
-            if write_to_socket(&socket, &packet.buffer, packet.to) {
-                break;
-            }
-            packets_to_send.pop_first();
-        }
-
-        let instant = Instant::now();
         while let Ok((send_info, buffer)) = write_reciver.try_recv() {
-            if send_info.at > instant + ACCEPTABLE_PACING_DELAY {
-                packets_to_send.insert(
-                    send_info.at,
-                    Packet {
-                        buffer,
-                        to: send_info.to,
-                    },
-                );
-            } else if write_to_socket(&socket, &buffer, send_info.to) {
-                packets_to_send.insert(
-                    send_info.at,
-                    Packet {
-                        buffer,
-                        to: send_info.to,
-                    },
-                );
-                break;
+            if let Ok(written) = send_to(
+                &socket,
+                &buffer,
+                &send_info,
+                MAX_DATAGRAM_SIZE,
+                pacing,
+                enable_gso,
+            ) {
+                log::debug!("socket wrote to : {written:?} to {:?}", send_info.to);
             }
         }
     }
@@ -294,7 +288,7 @@ pub fn server_loop(
 fn create_client_task(
     connection: quiche::Connection,
     mut receiver: mio_channel::Receiver<(quiche::RecvInfo, Vec<u8>)>,
-    sender: mpsc::Sender<(quiche::SendInfo, Vec<u8>)>,
+    sender: mio_channel::Sender<(quiche::SendInfo, Vec<u8>)>,
     message_channel: mpsc::Receiver<(Vec<u8>, u8)>,
     filters: Arc<RwLock<Vec<Filter>>>,
     maximum_concurrent_streams_id: u64,
@@ -308,7 +302,7 @@ fn create_client_task(
         let mut connection = connection;
         let mut instance = Instant::now();
         let mut closed = false;
-        let mut out = [0; MAX_DATAGRAM_SIZE];
+        let mut buf = [0; MAX_BUFFER_SIZE];
 
         let mut poll = mio::Poll::new().unwrap();
         let mut events = mio::Events::with_capacity(1024);
@@ -499,12 +493,16 @@ fn create_client_task(
                 connection.on_timeout();
             }
 
-            loop {
-                match connection.send(&mut out) {
+            let max_burst = connection.send_quantum();
+            let mut total_send = 0;
+            let mut dst_info: Option<_> = None;
+            while total_send < max_burst {
+                match connection.send(&mut buf[total_send..max_burst]) {
                     Ok((len, send_info)) => {
+                        let _ = dst_info.get_or_insert(send_info);
                         number_of_meesages_to_network
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        sender.send((send_info, out[..len].to_vec())).unwrap();
+                        total_send += len;
                     }
                     Err(quiche::Error::Done) => {
                         break;
@@ -519,6 +517,15 @@ fn create_client_task(
                         break;
                     }
                 };
+            }
+
+            if total_send > 0 {
+                sender
+                    .send((
+                        dst_info.expect("should have set the dst_info"),
+                        buf[..total_send].to_vec(),
+                    ))
+                    .unwrap();
             }
 
             if connection.is_closed() {
@@ -597,4 +604,119 @@ fn create_dispatching_thread(
             }
         }
     });
+}
+
+fn set_txtime_sockopt(sock: &mio::net::UdpSocket) -> std::io::Result<()> {
+    use nix::sys::socket::setsockopt;
+    use nix::sys::socket::sockopt::TxTime;
+    use std::os::unix::io::AsRawFd;
+
+    let config = nix::libc::sock_txtime {
+        clockid: libc::CLOCK_MONOTONIC,
+        flags: 0,
+    };
+
+    // mio::net::UdpSocket doesn't implement AsFd (yet?).
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock.as_raw_fd()) };
+
+    setsockopt(&fd, TxTime, &config)?;
+
+    Ok(())
+}
+
+fn std_time_to_u64(time: &std::time::Instant) -> u64 {
+    const NANOS_PER_SEC: u64 = 1_000_000_000;
+
+    const INSTANT_ZERO: std::time::Instant = unsafe { std::mem::transmute(std::time::UNIX_EPOCH) };
+
+    let raw_time = time.duration_since(INSTANT_ZERO);
+
+    let sec = raw_time.as_secs();
+    let nsec = raw_time.subsec_nanos();
+
+    sec * NANOS_PER_SEC + nsec as u64
+}
+
+pub fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
+    use nix::sys::socket::setsockopt;
+    use nix::sys::socket::sockopt::UdpGsoSegment;
+    use std::os::unix::io::AsRawFd;
+
+    // mio::net::UdpSocket doesn't implement AsFd (yet?).
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(socket.as_raw_fd()) };
+
+    setsockopt(&fd, UdpGsoSegment, &(segment_size as i32)).is_ok()
+}
+
+fn send_to_gso_pacing(
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
+    segment_size: usize,
+) -> std::io::Result<usize> {
+    use nix::sys::socket::sendmsg;
+    use nix::sys::socket::ControlMessage;
+    use nix::sys::socket::MsgFlags;
+    use nix::sys::socket::SockaddrStorage;
+    use std::io::IoSlice;
+    use std::os::unix::io::AsRawFd;
+
+    let iov = [IoSlice::new(buf)];
+    let segment_size = segment_size as u16;
+    let dst = SockaddrStorage::from(send_info.to);
+    let sockfd = socket.as_raw_fd();
+
+    // GSO option.
+    let cmsg_gso = ControlMessage::UdpGsoSegments(&segment_size);
+
+    // Pacing option.
+    let send_time = std_time_to_u64(&send_info.at);
+    let cmsg_txtime = ControlMessage::TxTime(&send_time);
+
+    match sendmsg(
+        sockfd,
+        &iov,
+        &[cmsg_gso, cmsg_txtime],
+        MsgFlags::empty(),
+        Some(&dst),
+    ) {
+        Ok(v) => Ok(v),
+        Err(e) => Err(e.into()),
+    }
+}
+
+pub fn send_to(
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
+    segment_size: usize,
+    pacing: bool,
+    enable_gso: bool,
+) -> std::io::Result<usize> {
+    if pacing && enable_gso {
+        match send_to_gso_pacing(socket, buf, send_info, segment_size) {
+            Ok(v) => {
+                return Ok(v);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
+    let mut off = 0;
+    let mut left = buf.len();
+    let mut written = 0;
+    while left > 0 {
+        let pkt_len = std::cmp::min(left, segment_size);
+        match socket.send_to(&buf[off..off + pkt_len], send_info.to) {
+            Ok(v) => {
+                written += v;
+            }
+            Err(e) => return Err(e),
+        }
+        off += pkt_len;
+        left -= pkt_len;
+    }
+
+    Ok(written)
 }
