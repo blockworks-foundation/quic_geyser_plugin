@@ -1,9 +1,7 @@
-use std::{fmt::Debug, sync::mpsc};
-
-use crate::configure_server::configure_server;
 use quic_geyser_common::{
     channel_message::ChannelMessage, config::ConfigQuicPlugin, plugin_error::QuicGeyserError,
 };
+use std::{fmt::Debug, sync::mpsc};
 
 use super::quiche_server_loop::server_loop;
 pub struct QuicServer {
@@ -19,7 +17,6 @@ impl Debug for QuicServer {
 
 impl QuicServer {
     pub fn new(config: ConfigQuicPlugin) -> anyhow::Result<Self> {
-        let server_config = configure_server(config.quic_parameters)?;
         let socket = config.address;
         let compression_type = config.compression_parameters.compression_type;
 
@@ -27,7 +24,7 @@ impl QuicServer {
 
         let _server_loop_jh = std::thread::spawn(move || {
             if let Err(e) = server_loop(
-                server_config,
+                config.quic_parameters,
                 socket,
                 data_channel_tx,
                 compression_type,

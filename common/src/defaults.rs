@@ -7,3 +7,5 @@ pub const DEFAULT_MAX_ACK_DELAY: u64 = 100;
 pub const DEFAULT_ACK_EXPONENT: u64 = 3;
 pub const ALPN_GEYSER_PROTOCOL_ID: &[u8] = b"geyser";
 pub const MAX_DATAGRAM_SIZE: usize = 1350; // MAX: 65527
+pub const DEFAULT_ENABLE_PACING: bool = true;
+pub const DEFAULT_ENABLE_GSO: bool = true;
