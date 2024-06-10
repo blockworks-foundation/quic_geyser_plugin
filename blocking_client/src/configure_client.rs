@@ -22,7 +22,7 @@ pub fn configure_client(
     config.set_initial_max_streams_bidi(maximum_concurrent_streams);
     config.set_initial_max_streams_uni(maximum_concurrent_streams);
     config.set_disable_active_migration(true);
-    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
     config.set_max_ack_delay(maximum_ack_delay);
     config.set_ack_delay_exponent(ack_exponent);
     config.enable_pacing(false);

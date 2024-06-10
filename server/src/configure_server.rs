@@ -41,14 +41,14 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     config.set_initial_max_streams_bidi(max_concurrent_streams);
     config.set_initial_max_streams_uni(max_concurrent_streams);
     config.set_disable_active_migration(true);
-    config.set_max_connection_window(128 * 1024 * 1024); // 128 Mbs
+    config.set_max_connection_window(32 * 1024 * 1024); // 128 Mbs
     config.enable_early_data();
-    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
     config.set_active_connection_id_limit(max_number_of_connections);
     config.set_max_ack_delay(maximum_ack_delay);
     config.set_ack_delay_exponent(ack_exponent);
-    config.set_initial_congestion_window_packets(1024);
-    config.set_max_stream_window(256 * 1024 * 1024);
-    config.enable_pacing(false);
+    config.set_initial_congestion_window_packets(1024 * 1024);
+    config.set_max_stream_window(32 * 1024 * 1024);
+    config.enable_pacing(quic_parameter.enable_pacing);
     Ok(config)
 }

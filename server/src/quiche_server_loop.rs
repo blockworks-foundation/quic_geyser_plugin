@@ -23,7 +23,7 @@ use quic_geyser_quiche_utils::{
 use crate::configure_server::configure_server;
 
 const MAX_BUFFER_SIZE: usize = 65507;
-const MAX_MESSAGES_PER_LOOP: usize = 32;
+const MAX_MESSAGES_PER_LOOP: usize = 2;
 
 pub struct Client {
     pub conn: quiche::Connection,
@@ -274,7 +274,7 @@ pub fn server_loop(
                     loss_rate: 0.0,
                     max_send_burst: MAX_BUFFER_SIZE,
                     filters: vec![],
-                    next_stream: 3,
+                    next_stream: 0,
                     closed: false,
                 };
 
@@ -417,10 +417,10 @@ pub fn server_loop(
                         .expect("Message should be serializable in binary");
                     for id in dispatching_connections.iter() {
                         let client = clients.get_mut(id).unwrap();
+                        client.next_stream =
+                            get_next_unidi(client.next_stream, true, maximum_concurrent_streams_id);
 
                         let stream_id = client.next_stream;
-                        client.next_stream =
-                            get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
 
                         if let Err(e) = client.conn.stream_priority(stream_id, priority, true) {
                             if !client.closed && stop_laggy_client {
