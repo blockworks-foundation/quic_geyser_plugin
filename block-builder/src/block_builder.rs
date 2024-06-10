@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::mpsc::{Receiver, Sender},
+    sync::mpsc::Receiver,
 };
 
 use itertools::Itertools;
@@ -16,7 +16,7 @@ use solana_sdk::pubkey::Pubkey;
 
 pub fn start_block_building_thread(
     channel_messages: Receiver<ChannelMessage>,
-    output: Sender<ChannelMessage>,
+    output: mio_channel::Sender<ChannelMessage>,
     compression_type: CompressionType,
 ) {
     std::thread::spawn(move || {
@@ -33,7 +33,7 @@ struct PartialBlock {
 
 pub fn build_blocks(
     channel_messages: Receiver<ChannelMessage>,
-    output: Sender<ChannelMessage>,
+    output: mio_channel::Sender<ChannelMessage>,
     compression_type: CompressionType,
 ) {
     let mut partially_build_blocks = BTreeMap::<u64, PartialBlock>::new();
@@ -156,7 +156,7 @@ pub fn build_blocks(
 fn dispatch_partial_block(
     partial_blocks: &mut BTreeMap<u64, PartialBlock>,
     slot: u64,
-    output: &Sender<ChannelMessage>,
+    output: &mio_channel::Sender<ChannelMessage>,
     compression_type: CompressionType,
 ) {
     if let Some(dispatched_partial_block) = partial_blocks.remove(&slot) {

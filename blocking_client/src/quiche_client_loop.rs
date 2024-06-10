@@ -373,7 +373,7 @@ mod tests {
         );
 
         // server loop
-        let (server_send_queue, rx_sent_queue) = mpsc::channel::<ChannelMessage>();
+        let (server_send_queue, rx_sent_queue) = mio_channel::channel::<ChannelMessage>();
         let _server_loop_jh = std::thread::spawn(move || {
             if let Err(e) = server_loop(
                 QuicParameters::default(),

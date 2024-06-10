@@ -34,7 +34,7 @@ mod tests {
     #[test]
     fn test_block_creation_transactions_after_blockmeta() {
         let (channelmsg_sx, cm_rx) = channel();
-        let (ms_sx, msg_rx) = channel();
+        let (ms_sx, msg_rx) = mio_channel::channel();
         start_block_building_thread(
             cm_rx,
             ms_sx,
@@ -227,7 +227,8 @@ mod tests {
             .send(ChannelMessage::Transaction(Box::new(tx3.clone())))
             .unwrap();
 
-        let block_message = msg_rx.recv().unwrap();
+        sleep(Duration::from_millis(1));
+        let block_message = msg_rx.try_recv().unwrap();
         let ChannelMessage::Block(block) = block_message else {
             unreachable!();
         };
@@ -256,7 +257,7 @@ mod tests {
     #[test]
     fn test_block_creation_blockmeta_after_transactions() {
         let (channelmsg_sx, cm_rx) = channel();
-        let (ms_sx, msg_rx) = channel();
+        let (ms_sx, msg_rx) = mio_channel::channel();
         start_block_building_thread(
             cm_rx,
             ms_sx,
@@ -450,7 +451,8 @@ mod tests {
             .send(ChannelMessage::BlockMeta(block_meta.clone()))
             .unwrap();
 
-        let block_message = msg_rx.recv().unwrap();
+        sleep(Duration::from_millis(1));
+        let block_message = msg_rx.try_recv().unwrap();
         let ChannelMessage::Block(block) = block_message else {
             unreachable!();
         };
@@ -479,7 +481,7 @@ mod tests {
     #[test]
     fn test_block_creation_incomplete_block_after_slot_notification() {
         let (channelmsg_sx, cm_rx) = channel();
-        let (ms_sx, msg_rx) = channel();
+        let (ms_sx, msg_rx) = mio_channel::channel();
         start_block_building_thread(
             cm_rx,
             ms_sx,
@@ -672,7 +674,8 @@ mod tests {
             .send(ChannelMessage::Transaction(Box::new(tx3.clone())))
             .unwrap();
 
-        let block_message = msg_rx.recv().unwrap();
+        sleep(Duration::from_millis(1));
+        let block_message = msg_rx.try_recv().unwrap();
         let ChannelMessage::Block(block) = block_message else {
             unreachable!();
         };
@@ -701,7 +704,7 @@ mod tests {
     #[test]
     fn test_block_creation_incomplete_slot() {
         let (channelmsg_sx, cm_rx) = channel();
-        let (ms_sx, msg_rx) = channel();
+        let (ms_sx, msg_rx) = mio_channel::channel();
         start_block_building_thread(
             cm_rx,
             ms_sx,

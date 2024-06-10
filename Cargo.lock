@@ -2457,6 +2457,7 @@ dependencies = [
  "bincode",
  "itertools",
  "log",
+ "mio_channel",
  "quic-geyser-common",
  "quic-geyser-server",
  "rand 0.8.5",
