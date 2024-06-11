@@ -7,7 +7,7 @@ authors = ["Godmode Galactus"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-solana-rpc-client = "~1.18.16"
+solana-rpc-client = "~1.17.31"
 
 clap = { workspace = true, features = ["derive", "env"]  }
 serde = { workspace = true }

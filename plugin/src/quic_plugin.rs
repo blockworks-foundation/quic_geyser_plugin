@@ -31,7 +31,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
         "quic_geyser_plugin"
     }
 
-    fn on_load(&mut self, config_file: &str, _is_reload: bool) -> PluginResult<()> {
+    fn on_load(&mut self, config_file: &str) -> PluginResult<()> {
         log::info!("loading quic_geyser plugin");
         let config = Config::load_from_file(config_file)?;
         let compression_type = config.quic_plugin.compression_parameters.compression_type;
