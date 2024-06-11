@@ -64,7 +64,7 @@ pub fn build_blocks(
                 }
             }
             ChannelMessage::Slot(slot, _parent_slot, commitment) => {
-                if commitment.is_confirmed() || commitment.is_finalized() {
+                if commitment.is_finalized() {
                     // dispactch partially build blocks if not already dispatched
                     dispatch_partial_block(
                         &mut partially_build_blocks,

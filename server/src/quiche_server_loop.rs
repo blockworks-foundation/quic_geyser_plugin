@@ -419,7 +419,7 @@ fn create_client_task(
                             next_stream =
                                 get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
 
-                            if let Err(e) = connection.stream_priority(stream_id, priority, true) {
+                            if let Err(e) = connection.stream_priority(stream_id, priority, false) {
                                 if !closed {
                                     log::error!(
                                         "Unable to set priority for the stream {}, error {}",

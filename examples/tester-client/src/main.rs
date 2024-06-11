@@ -1,7 +1,9 @@
 use std::{
+    collections::BTreeMap,
+    fmt::Display,
     sync::{atomic::AtomicU64, Arc},
     thread::sleep,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use clap::Parser;
@@ -34,6 +36,83 @@ pub mod cli;
 // };
 // let config_json = json!(config);
 //println!("{}", config_json);
+
+struct Stats<T: Ord + Display + Default + Copy> {
+    container: BTreeMap<T, usize>,
+    count: usize,
+}
+
+impl<T: Ord + Display + Default + Copy> Stats<T> {
+    pub fn new() -> Self {
+        Self {
+            container: BTreeMap::new(),
+            count: 0,
+        }
+    }
+
+    pub fn add_value(&mut self, value: &T) {
+        self.count += 1;
+        match self.container.get_mut(value) {
+            Some(size) => {
+                *size += 1;
+            }
+            None => {
+                self.container.insert(*value, 1);
+            }
+        }
+    }
+
+    pub fn print_stats(&self, name: &str) {
+        if self.count > 0 {
+            let p50_index = self.count / 2;
+            let p75_index = self.count * 3 / 4;
+            let p90_index = self.count * 9 / 10;
+            let p95_index = self.count * 95 / 100;
+            let p99_index = self.count * 99 / 100;
+
+            let mut p50_value = None::<T>;
+            let mut p75_value = None::<T>;
+            let mut p90_value = None::<T>;
+            let mut p95_value = None::<T>;
+            let mut p99_value = None::<T>;
+
+            let mut counter = 0;
+            for (value, size) in self.container.iter() {
+                counter += size;
+                if counter > p50_index && p50_value.is_none() {
+                    p50_value = Some(*value);
+                }
+                if counter > p75_index && p75_value.is_none() {
+                    p75_value = Some(*value);
+                }
+                if counter > p90_index && p90_value.is_none() {
+                    p90_value = Some(*value);
+                }
+                if counter > p95_index && p95_value.is_none() {
+                    p95_value = Some(*value);
+                }
+                if counter > p99_index && p99_value.is_none() {
+                    p99_value = Some(*value);
+                }
+            }
+            let max_value = self
+                .container
+                .last_key_value()
+                .map(|x| *x.0)
+                .unwrap_or_default();
+            println!(
+                "stats {} : p50={}, p75={}, p90={}, p95={}, p99={}, max:{}",
+                name,
+                p50_value.unwrap_or_default(),
+                p75_value.unwrap_or_default(),
+                p90_value.unwrap_or_default(),
+                p95_value.unwrap_or_default(),
+                p99_value.unwrap_or_default(),
+                max_value
+            );
+        }
+    }
+}
 
 #[tokio::main]
 pub async fn main() {
@@ -91,47 +170,72 @@ pub async fn main() {
         let slot_slot = slot_slot.clone();
         let blockmeta_slot = blockmeta_slot.clone();
         let block_slot = block_slot.clone();
+
         std::thread::spawn(move || {
-            let mut max_byte_transfer_rate = 0;
+            let mut instant = Instant::now();
+            let mut bytes_transfered_stats = Stats::<u64>::new();
+            let mut slot_notifications_stats = Stats::<u64>::new();
+            let mut account_notification_stats = Stats::<u64>::new();
+            let mut blockmeta_notifications_stats = Stats::<u64>::new();
+            let mut transaction_notifications_stats = Stats::<u64>::new();
+            let mut total_accounts_size_stats = Stats::<u64>::new();
+            let mut block_notifications_stats = Stats::<u64>::new();
+            let mut counter = 0;
+            let start_instance = Instant::now();
             loop {
-                sleep(Duration::from_secs(1));
+                counter += 1;
+                sleep(Duration::from_secs(1) - instant.elapsed());
+                instant = Instant::now();
                 let bytes_transfered =
                     bytes_transfered.swap(0, std::sync::atomic::Ordering::Relaxed);
-                if max_byte_transfer_rate < bytes_transfered {
-                    max_byte_transfer_rate = bytes_transfered;
-                }
+                let total_accounts_size =
+                    total_accounts_size.swap(0, std::sync::atomic::Ordering::Relaxed);
+                let account_notification =
+                    account_notification.swap(0, std::sync::atomic::Ordering::Relaxed);
+                let slot_notifications =
+                    slot_notifications.swap(0, std::sync::atomic::Ordering::Relaxed);
+                let blockmeta_notifications =
+                    blockmeta_notifications.swap(0, std::sync::atomic::Ordering::Relaxed);
+                let transaction_notifications =
+                    transaction_notifications.swap(0, std::sync::atomic::Ordering::Relaxed);
+                let block_notifications =
+                    block_notifications.swap(0, std::sync::atomic::Ordering::Relaxed);
+                bytes_transfered_stats.add_value(&bytes_transfered);
+                total_accounts_size_stats.add_value(&total_accounts_size);
+                slot_notifications_stats.add_value(&slot_notifications);
+                account_notification_stats.add_value(&account_notification);
+                blockmeta_notifications_stats.add_value(&blockmeta_notifications);
+                transaction_notifications_stats.add_value(&transaction_notifications);
+                block_notifications_stats.add_value(&block_notifications);
+
                 println!("------------------------------------------");
+                println!(
+                    " DateTime : {:?}",
+                    instant.duration_since(start_instance).as_secs()
+                );
                 println!(" Bytes Transfered : {} Mbs/s", bytes_transfered / 1_000_000);
                 println!(
-                    " MAX Bytes Transfered : {} Mbs/s",
-                    max_byte_transfer_rate / 1_000_000
+                    " Accounts transfered size (uncompressed) : {} Mbs",
+                    total_accounts_size / 1_000_000
                 );
-                println!(
-                    " Accounts transfered size (uncompressed) : {}",
-                    total_accounts_size.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    " Accounts Notified : {}",
-                    account_notification.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    " Slots Notified : {}",
-                    slot_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    " Blockmeta notified : {}",
-                    blockmeta_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    " Transactions notified : {}",
-                    transaction_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
-                println!(
-                    " Blocks notified : {}",
-                    block_notifications.swap(0, std::sync::atomic::Ordering::Relaxed)
-                );
+                println!(" Accounts Notified : {}", account_notification);
+                println!(" Slots Notified : {}", slot_notifications);
+                println!(" Blockmeta notified : {}", blockmeta_notifications);
+                println!(" Transactions notified : {}", transaction_notifications);
+                println!(" Blocks notified : {}", block_notifications);
 
                 println!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {}, Block slot: {}", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed), block_slot.load(std::sync::atomic::Ordering::Relaxed));
+
+                if counter % 10 == 0 {
+                    println!("------------------STATS------------------------");
+                    bytes_transfered_stats.print_stats("Bytes transfered");
+                    total_accounts_size_stats.print_stats("Total account size uncompressed");
+                    slot_notifications_stats.print_stats("Slot Notifications");
+                    account_notification_stats.print_stats("Account notifications");
+                    blockmeta_notifications_stats.print_stats("Block meta Notifications");
+                    transaction_notifications_stats.print_stats("Transaction notifications");
+                    block_notifications_stats.print_stats("Block Notifications");
+                }
             }
         });
     }
@@ -143,6 +247,7 @@ pub async fn main() {
         filters.push(Filter::BlockAll);
     } else {
         filters.push(Filter::AccountsAll);
+        filters.push(Filter::TransactionsAll);
     };
 
     println!("Subscribing");
