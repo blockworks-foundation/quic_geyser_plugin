@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     net::SocketAddr,
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize},
@@ -17,6 +17,7 @@ use ring::rand::SystemRandom;
 use quic_geyser_common::{
     channel_message::ChannelMessage,
     compression::CompressionType,
+    config::QuicParameters,
     defaults::{MAX_ALLOWED_PARTIAL_RESPONSES, MAX_DATAGRAM_SIZE},
     filters::Filter,
     message::Message,
@@ -26,8 +27,10 @@ use quic_geyser_common::{
 use quic_geyser_quiche_utils::{
     quiche_reciever::{recv_message, ReadStreams},
     quiche_sender::{handle_writable, send_message},
-    quiche_utils::{get_next_unidi, mint_token, validate_token, write_to_socket, PartialResponses},
+    quiche_utils::{get_next_unidi, mint_token, validate_token, PartialResponses},
 };
+
+use crate::configure_server::configure_server;
 
 struct DispatchingData {
     pub sender: Sender<(Vec<u8>, u8)>,
@@ -37,21 +40,15 @@ struct DispatchingData {
 
 type DispachingConnections = Arc<Mutex<HashMap<ConnectionId<'static>, DispatchingData>>>;
 
-const ACCEPTABLE_PACING_DELAY: Duration = Duration::from_millis(100);
-
-struct Packet {
-    pub buffer: Vec<u8>,
-    pub to: SocketAddr,
-}
-
 pub fn server_loop(
-    mut config: quiche::Config,
+    quic_params: QuicParameters,
     socket_addr: SocketAddr,
     message_send_queue: mpsc::Receiver<ChannelMessage>,
     compression_type: CompressionType,
     stop_laggy_client: bool,
 ) -> anyhow::Result<()> {
     let maximum_concurrent_streams_id = u64::MAX;
+    let mut config = configure_server(quic_params)?;
 
     let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
     let mut poll = mio::Poll::new()?;
@@ -82,7 +79,11 @@ pub fn server_loop(
     //     mio::Interest::READABLE,
     // )?;
 
-    let mut packets_to_send: BTreeMap<Instant, Packet> = BTreeMap::new();
+    let enable_pacing = if quic_params.enable_pacing {
+        set_txtime_sockopt(&socket).is_ok()
+    } else {
+        false
+    };
 
     let dispatching_connections: DispachingConnections = Arc::new(Mutex::new(HashMap::<
         ConnectionId<'static>,
@@ -169,8 +170,8 @@ pub fn server_loop(
                     )
                     .unwrap();
 
-                    if write_to_socket(&socket, &out[..len], from) {
-                        break;
+                    if let Err(e) = socket.send_to(&out[..len], from) {
+                        log::error!("Error sending retry messages : {e:?}");
                     }
                     continue 'read;
                 }
@@ -253,38 +254,19 @@ pub fn server_loop(
             };
         }
 
-        let instant = Instant::now();
-        // send remaining packets
-        // log::debug!("packets to send : {}", packets_to_send.len());
-        while let Some((to_send, packet)) = packets_to_send.first_key_value() {
-            if instant + ACCEPTABLE_PACING_DELAY <= *to_send {
-                break;
-            }
-            if write_to_socket(&socket, &packet.buffer, packet.to) {
-                break;
-            }
-            packets_to_send.pop_first();
-        }
-
-        let instant = Instant::now();
         while let Ok((send_info, buffer)) = write_reciver.try_recv() {
-            if send_info.at > instant + ACCEPTABLE_PACING_DELAY {
-                packets_to_send.insert(
-                    send_info.at,
-                    Packet {
-                        buffer,
-                        to: send_info.to,
-                    },
-                );
-            } else if write_to_socket(&socket, &buffer, send_info.to) {
-                packets_to_send.insert(
-                    send_info.at,
-                    Packet {
-                        buffer,
-                        to: send_info.to,
-                    },
-                );
-                break;
+            let send_result = if enable_pacing {
+                send_with_pacing(&socket, &buffer, &send_info)
+            } else {
+                socket.send_to(&buffer, send_info.to)
+            };
+            match send_result {
+                Ok(written) => {
+                    log::debug!("written {written:?} to {:?}", send_info.to);
+                }
+                Err(e) => {
+                    log::error!("sending failed with error : {e:?}");
+                }
             }
         }
     }
@@ -597,4 +579,59 @@ fn create_dispatching_thread(
             }
         }
     });
+}
+
+fn set_txtime_sockopt(sock: &mio::net::UdpSocket) -> std::io::Result<()> {
+    use nix::sys::socket::setsockopt;
+    use nix::sys::socket::sockopt::TxTime;
+    use std::os::unix::io::AsRawFd;
+
+    let config = nix::libc::sock_txtime {
+        clockid: libc::CLOCK_MONOTONIC,
+        flags: 0,
+    };
+
+    // mio::net::UdpSocket doesn't implement AsFd (yet?).
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock.as_raw_fd()) };
+
+    setsockopt(&fd, TxTime, &config)?;
+
+    Ok(())
+}
+
+const NANOS_PER_SEC: u64 = 1_000_000_000;
+
+const INSTANT_ZERO: std::time::Instant = unsafe { std::mem::transmute(std::time::UNIX_EPOCH) };
+
+fn std_time_to_u64(time: &std::time::Instant) -> u64 {
+    let raw_time = time.duration_since(INSTANT_ZERO);
+    let sec = raw_time.as_secs();
+    let nsec = raw_time.subsec_nanos();
+    sec * NANOS_PER_SEC + nsec as u64
+}
+
+fn send_with_pacing(
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
+) -> std::io::Result<usize> {
+    use nix::sys::socket::sendmsg;
+    use nix::sys::socket::ControlMessage;
+    use nix::sys::socket::MsgFlags;
+    use nix::sys::socket::SockaddrStorage;
+    use std::io::IoSlice;
+    use std::os::unix::io::AsRawFd;
+
+    let iov = [IoSlice::new(buf)];
+    let dst = SockaddrStorage::from(send_info.to);
+    let sockfd = socket.as_raw_fd();
+
+    // Pacing option.
+    let send_time = std_time_to_u64(&send_info.at);
+    let cmsg_txtime = ControlMessage::TxTime(&send_time);
+
+    match sendmsg(sockfd, &iov, &[cmsg_txtime], MsgFlags::empty(), Some(&dst)) {
+        Ok(v) => Ok(v),
+        Err(e) => Err(e.into()),
+    }
 }
