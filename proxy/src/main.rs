@@ -49,6 +49,7 @@ pub fn main() -> anyhow::Result<()> {
             max_number_of_connections: args.max_number_of_connections,
             max_ack_delay: args.max_ack_delay,
             ack_exponent: args.ack_exponent,
+            ..Default::default()
         },
         compression_parameters: CompressionParameters {
             compression_type: quic_geyser_common::compression::CompressionType::Lz4Fast(

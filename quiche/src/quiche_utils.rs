@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::collections::HashMap;
 
 pub fn validate_token<'a>(
     src: &std::net::SocketAddr,
@@ -89,20 +89,3 @@ pub struct PartialResponse {
 }
 
 pub type PartialResponses = HashMap<u64, PartialResponse>;
-
-// returns true if the socket will block the writing of socket
-// return false otherwise
-pub fn write_to_socket(socket: &mio::net::UdpSocket, buf: &[u8], to: SocketAddr) -> bool {
-    match socket.send_to(buf, to) {
-        Ok(_len) => false,
-        Err(e) => {
-            if e.kind() == std::io::ErrorKind::WouldBlock {
-                log::warn!("writing would block");
-                true
-            } else {
-                log::error!("send() failed: {:?}", e);
-                false
-            }
-        }
-    }
-}

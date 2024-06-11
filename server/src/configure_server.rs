@@ -12,6 +12,8 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     let max_number_of_connections = quic_parameter.max_number_of_connections;
     let maximum_ack_delay = quic_parameter.max_ack_delay;
     let ack_exponent = quic_parameter.ack_exponent;
+    let enable_pacing = quic_parameter.enable_pacing;
+    let use_bbr = quic_parameter.use_cc_bbr;
 
     let cert = rcgen::generate_simple_self_signed(vec!["quic_geyser".into()]).unwrap();
 
@@ -43,12 +45,18 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     config.set_disable_active_migration(true);
     config.set_max_connection_window(128 * 1024 * 1024); // 128 Mbs
     config.enable_early_data();
-    config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+
+    if use_bbr {
+        config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+    } else {
+        config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
+    }
+
     config.set_active_connection_id_limit(max_number_of_connections);
     config.set_max_ack_delay(maximum_ack_delay);
     config.set_ack_delay_exponent(ack_exponent);
     config.set_initial_congestion_window_packets(1024);
     config.set_max_stream_window(256 * 1024 * 1024);
-    config.enable_pacing(false);
+    config.enable_pacing(enable_pacing);
     Ok(config)
 }
