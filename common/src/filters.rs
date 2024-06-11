@@ -15,6 +15,7 @@ pub enum Filter {
     Transaction(Signature),
     TransactionsAll,
     BlockAll,
+    DeletedAccounts,
 }
 
 impl Filter {
@@ -35,6 +36,10 @@ impl Filter {
             }
             Filter::TransactionsAll => matches!(message, ChannelMessage::Transaction(_)),
             Filter::BlockAll => matches!(message, ChannelMessage::Block(_)),
+            Filter::DeletedAccounts => match message {
+                ChannelMessage::Account(account, _) => account.account.lamports == 0,
+                _ => false,
+            },
         }
     }
 }
