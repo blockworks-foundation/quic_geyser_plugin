@@ -9,6 +9,7 @@ use crate::channel_message::ChannelMessage;
 #[repr(C)]
 pub enum Filter {
     Account(AccountFilter),
+    // will excude vote accounts and stake accounts by default
     AccountsAll,
     Slot,
     BlockMeta,
@@ -16,13 +17,21 @@ pub enum Filter {
     TransactionsAll,
     BlockAll,
     DeletedAccounts,
+    AccountsExcluding(AccountFilter),
 }
 
 impl Filter {
     pub fn allows(&self, message: &ChannelMessage) -> bool {
         match &self {
             Filter::Account(account) => account.allows(message),
-            Filter::AccountsAll => matches!(message, ChannelMessage::Account(..)),
+            Filter::AccountsAll => match message {
+                ChannelMessage::Account(account, _) => {
+                    account.account.owner != solana_program::vote::program::ID // does not belong to vote program
+                        && account.account.owner != solana_program::stake::program::ID
+                    // does not belong to stake program
+                }
+                _ => false,
+            },
             Filter::Slot => matches!(message, ChannelMessage::Slot(..)),
             Filter::BlockMeta => matches!(message, ChannelMessage::BlockMeta(..)),
             Filter::Transaction(signature) => {
@@ -40,6 +49,7 @@ impl Filter {
                 ChannelMessage::Account(account, _) => account.account.lamports == 0,
                 _ => false,
             },
+            Filter::AccountsExcluding(account) => !account.allows(message),
         }
     }
 }

@@ -2704,6 +2704,7 @@ dependencies = [
  "lz4",
  "rand 0.8.5",
  "serde",
+ "solana-program",
  "solana-sdk",
  "solana-transaction-status",
  "thiserror",

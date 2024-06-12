@@ -22,6 +22,7 @@ edition = "2021"
 
 [workspace.dependencies]
 solana-sdk = "=1.18.16"
+solana-program = "=1.18.16"
 agave-geyser-plugin-interface = "=1.18.16"
 solana-transaction-status = "=1.18.16"
 solana-logger = "=1.18.16"
