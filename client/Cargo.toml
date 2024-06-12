@@ -11,7 +11,7 @@ solana-sdk = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
 quinn = "0.10.2"
-rustls = "=0.21.7"
+rustls = "0.21.7"
 rcgen = "0.10.0"
 pkcs8 = "0.8.0"
 
