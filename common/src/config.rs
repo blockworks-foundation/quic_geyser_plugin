@@ -6,8 +6,8 @@ use crate::{
     compression::CompressionType,
     defaults::{
         DEFAULT_ACK_EXPONENT, DEFAULT_CONNECTION_TIMEOUT, DEFAULT_ENABLE_PACING,
-        DEFAULT_MAX_ACK_DELAY, DEFAULT_MAX_NB_CONNECTIONS, DEFAULT_MAX_RECIEVE_WINDOW_SIZE,
-        DEFAULT_MAX_STREAMS, DEFAULT_USE_CC_BBR,
+        DEFAULT_INCREMENTAL_PRIORITY, DEFAULT_MAX_ACK_DELAY, DEFAULT_MAX_NB_CONNECTIONS,
+        DEFAULT_MAX_RECIEVE_WINDOW_SIZE, DEFAULT_MAX_STREAMS, DEFAULT_USE_CC_BBR,
     },
 };
 
@@ -65,6 +65,7 @@ pub struct QuicParameters {
     pub ack_exponent: u64,
     pub enable_pacing: bool,
     pub use_cc_bbr: bool,
+    pub incremental_priority: bool,
 }
 
 impl Default for QuicParameters {
@@ -78,6 +79,7 @@ impl Default for QuicParameters {
             ack_exponent: DEFAULT_ACK_EXPONENT,
             enable_pacing: DEFAULT_ENABLE_PACING,
             use_cc_bbr: DEFAULT_USE_CC_BBR,
+            incremental_priority: DEFAULT_INCREMENTAL_PRIORITY,
         }
     }
 }

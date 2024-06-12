@@ -222,6 +222,7 @@ pub fn server_loop(
                     maximum_concurrent_streams_id,
                     stop_laggy_client,
                     messages_in_queue.clone(),
+                    quic_params.incremental_priority,
                 );
                 let mut lk = dispatching_connections.lock().unwrap();
                 lk.insert(
@@ -282,6 +283,7 @@ fn create_client_task(
     maximum_concurrent_streams_id: u64,
     stop_laggy_client: bool,
     messages_in_queue: Arc<AtomicUsize>,
+    incremental_priority: bool,
 ) {
     std::thread::spawn(move || {
         let mut partial_responses = PartialResponses::new();
@@ -419,7 +421,11 @@ fn create_client_task(
                             next_stream =
                                 get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
 
-                            if let Err(e) = connection.stream_priority(stream_id, priority, false) {
+                            if let Err(e) = connection.stream_priority(
+                                stream_id,
+                                priority,
+                                incremental_priority,
+                            ) {
                                 if !closed {
                                     log::error!(
                                         "Unable to set priority for the stream {}, error {}",

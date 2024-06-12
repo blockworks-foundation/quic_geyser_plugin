@@ -9,3 +9,4 @@ pub const ALPN_GEYSER_PROTOCOL_ID: &[u8] = b"geyser";
 pub const MAX_DATAGRAM_SIZE: usize = 1350; // MAX: 65527
 pub const DEFAULT_ENABLE_PACING: bool = true;
 pub const DEFAULT_USE_CC_BBR: bool = false;
+pub const DEFAULT_INCREMENTAL_PRIORITY: bool = false;
