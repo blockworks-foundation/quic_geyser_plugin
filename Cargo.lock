@@ -2640,7 +2640,7 @@ dependencies = [
 
 [[package]]
 name = "quic-geyser-block-builder"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2655,7 +2655,7 @@ dependencies = [
 
 [[package]]
 name = "quic-geyser-blocking-client"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2675,7 +2675,7 @@ dependencies = [
 
 [[package]]
 name = "quic-geyser-client"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2695,7 +2695,7 @@ dependencies = [
 
 [[package]]
 name = "quic-geyser-common"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2713,7 +2713,7 @@ dependencies = [
 
 [[package]]
 name = "quic-geyser-plugin"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
@@ -2734,7 +2734,7 @@ dependencies = [
 
 [[package]]
 name = "quic-geyser-plugin-proxy"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2752,7 +2752,7 @@ dependencies = [
 
 [[package]]
 name = "quic-geyser-quiche-utils"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2770,7 +2770,7 @@ dependencies = [
 
 [[package]]
 name = "quic-geyser-server"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2796,7 +2796,7 @@ dependencies = [
 
 [[package]]
 name = "quic-plugin-tester-client"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bincode",
@@ -2814,7 +2814,7 @@ dependencies = [
 
 [[package]]
 name = "quic-plugin-tester-server"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bincode",

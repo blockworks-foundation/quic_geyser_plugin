@@ -14,7 +14,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 authors = ["gmgalactus <gmgalactus@mango.markets>"]
 repository = "https://github.com/blockworks-foundation/quic-geyser-plugin"
 license = "AGPL"
@@ -26,6 +26,7 @@ solana-program = "=1.18.16"
 agave-geyser-plugin-interface = "=1.18.16"
 solana-transaction-status = "=1.18.16"
 solana-logger = "=1.18.16"
+solana-rpc-client = "~1.18.16"
 
 itertools = "0.10.5"
 serde = "1.0.201"
@@ -58,13 +59,13 @@ vergen = "8.2.1"
 rand = "0.8.5"
 tokio = "1.28.2"
 
-quic-geyser-common = {path = "common", version="0.1.4"}
-quic-geyser-client = {path = "client", version="0.1.4"}
-quic-geyser-plugin = {path = "plugin", version="0.1.4"}
-quic-geyser-server = {path = "server", version="0.1.4"}
-quic-geyser-quiche-utils = {path = "quiche", version = "0.1.4"}
-quic-geyser-blocking-client = {path = "blocking_client", version = "0.1.4"}
-quic-geyser-block-builder = {path = "block-builder", version = "0.1.4"}
+quic-geyser-common = {path = "common", version="0.1.5"}
+quic-geyser-client = {path = "client", version="0.1.5"}
+quic-geyser-plugin = {path = "plugin", version="0.1.5"}
+quic-geyser-server = {path = "server", version="0.1.5"}
+quic-geyser-quiche-utils = {path = "quiche", version = "0.1.5"}
+quic-geyser-blocking-client = {path = "blocking_client", version = "0.1.5"}
+quic-geyser-block-builder = {path = "block-builder", version = "0.1.5"}
 
 [profile.release]
 debug = true
