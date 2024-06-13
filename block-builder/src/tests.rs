@@ -901,7 +901,7 @@ mod tests {
         sleep(Duration::from_millis(1));
         assert_eq!(msg_rx.try_recv(), Err(TryRecvError::Empty));
         channelmsg_sx
-            .send(ChannelMessage::Slot(5, 4, CommitmentConfig::confirmed()))
+            .send(ChannelMessage::Slot(5, 4, CommitmentConfig::finalized()))
             .unwrap();
         sleep(Duration::from_millis(1));
 

@@ -44,7 +44,7 @@ pub fn handle_writable(
         Some(s) => s,
         None => {
             // stream has finished
-            let _ = conn.stream_send(stream_id, b"", true);
+            let _ = conn.stream_shutdown(stream_id, quiche::Shutdown::Write, 0);
             return Ok(());
         }
     };
