@@ -21,4 +21,5 @@ pub struct BlockMeta {
     pub block_height: Option<u64>,
     pub executed_transaction_count: u64,
     pub entries_count: u64,
+    pub block_time: u64,
 }

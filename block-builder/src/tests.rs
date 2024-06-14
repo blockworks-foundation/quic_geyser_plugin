@@ -114,6 +114,7 @@ mod tests {
             block_height: Some(4),
             executed_transaction_count: 2,
             entries_count: 2,
+            block_time: 0,
         };
         channelmsg_sx
             .send(ChannelMessage::BlockMeta(block_meta.clone()))
@@ -336,6 +337,7 @@ mod tests {
             block_height: Some(4),
             executed_transaction_count: 2,
             entries_count: 2,
+            block_time: 0,
         };
 
         let tx1 = Transaction {
@@ -559,6 +561,7 @@ mod tests {
             block_height: Some(4),
             executed_transaction_count: 2,
             entries_count: 2,
+            block_time: 0,
         };
         channelmsg_sx
             .send(ChannelMessage::BlockMeta(block_meta.clone()))
@@ -781,6 +784,7 @@ mod tests {
             block_height: Some(4),
             executed_transaction_count: 5,
             entries_count: 2,
+            block_time: 0,
         };
 
         channelmsg_sx

@@ -7,10 +7,7 @@ use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
     config::{CompressionParameters, ConfigQuicPlugin, QuicParameters},
     filters::Filter,
-    types::{
-        block_meta::BlockMeta, connections_parameters::ConnectionParameters,
-        transaction::Transaction,
-    },
+    types::connections_parameters::ConnectionParameters,
 };
 use quic_geyser_server::quic_server::QuicServer;
 
@@ -99,26 +96,10 @@ pub fn main() -> anyhow::Result<()> {
                 slot_message.commitment_config,
             ),
             quic_geyser_common::message::Message::BlockMetaMsg(block_meta_message) => {
-                ChannelMessage::BlockMeta(BlockMeta {
-                    parent_slot: block_meta_message.parent_slot,
-                    slot: block_meta_message.slot,
-                    parent_blockhash: block_meta_message.parent_blockhash,
-                    blockhash: block_meta_message.blockhash,
-                    rewards: block_meta_message.rewards,
-                    block_height: block_meta_message.block_height,
-                    executed_transaction_count: block_meta_message.executed_transaction_count,
-                    entries_count: block_meta_message.entries_count,
-                })
+                ChannelMessage::BlockMeta(block_meta_message)
             }
             quic_geyser_common::message::Message::TransactionMsg(transaction_message) => {
-                ChannelMessage::Transaction(Box::new(Transaction {
-                    slot_identifier: transaction_message.slot_identifier,
-                    signatures: transaction_message.signatures,
-                    message: transaction_message.message,
-                    is_vote: transaction_message.is_vote,
-                    transasction_meta: transaction_message.transasction_meta,
-                    index: transaction_message.index,
-                }))
+                ChannelMessage::Transaction(transaction_message)
             }
             _ => {
                 unreachable!()

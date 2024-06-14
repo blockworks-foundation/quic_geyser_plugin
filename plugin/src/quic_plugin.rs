@@ -233,6 +233,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
             block_height: blockinfo.block_height,
             executed_transaction_count: blockinfo.executed_transaction_count,
             entries_count: blockinfo.entry_count,
+            block_time: blockinfo.block_time.unwrap_or_default() as u64,
         };
 
         let block_meta_message = ChannelMessage::BlockMeta(block_meta);
