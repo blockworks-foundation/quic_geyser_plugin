@@ -55,6 +55,10 @@ pub fn main() {
         }
         instant = Instant::now();
         slot += 1;
+
+        let channel_message = ChannelMessage::Slot(slot, slot-1, solana_sdk::commitment_config::CommitmentConfig::processed());
+        quic_server.send_message(channel_message).unwrap();
+
         for _ in 0..args.accounts_per_second {
             write_version += 1;
             let account = AccountData {
