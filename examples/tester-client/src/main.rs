@@ -311,6 +311,9 @@ pub async fn main() {
             quic_geyser_common::message::Message::Filters(_) => {
                 // Not supported
             }
+            quic_geyser_common::message::Message::Ping => {
+                // not supported
+            }
         }
     }
 }

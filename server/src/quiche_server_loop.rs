@@ -389,6 +389,9 @@ fn create_client_task(
                                 let mut filter_lk = filters.write().unwrap();
                                 filter_lk.append(&mut f);
                             }
+                            Message::Ping => {
+                                log::debug!("recieved ping from the client");
+                            }
                             _ => {
                                 log::error!("unknown message from the client");
                             }

@@ -148,6 +148,26 @@ impl Client {
             });
         }
 
+        // create a ping thread
+        {
+            let connection = connection.clone();
+            tokio::spawn(async move {
+                let ping_message = bincode::serialize(&Message::Ping)
+                    .expect("ping message should be serializable");
+                loop {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+
+                    if let Ok(mut uni_send_stream) = connection.open_uni().await {
+                        let _ = uni_send_stream.write_all(&ping_message).await;
+                        let _ = uni_send_stream.finish().await;
+                    } else {
+                        // connection closed
+                        break;
+                    }
+                }
+            });
+        }
+
         Ok((Client { connection }, message_rx_queue))
     }
 

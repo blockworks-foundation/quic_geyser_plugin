@@ -145,6 +145,7 @@ pub fn create_quiche_client_thread(
         let mut read_streams = ReadStreams::new();
         let mut connected = false;
         let mut instance = Instant::now();
+        let ping_message = bincode::serialize(&Message::Ping).unwrap();
 
         'client: loop {
             poll.poll(&mut events, Some(Duration::from_millis(10)))
@@ -154,8 +155,17 @@ pub fn create_quiche_client_thread(
             }
 
             // sending ping
-            if instance.elapsed() > Duration::from_secs(5) {
+            if instance.elapsed() > Duration::from_secs(1) {
                 log::debug!("sending ping to the server");
+                current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
+                if let Err(e) = send_message(
+                    &mut connection,
+                    &mut partial_responses,
+                    current_stream_id,
+                    &ping_message,
+                ) {
+                    log::error!("Error sending ping message : {e}");
+                }
                 instance = Instant::now();
                 connection.on_timeout();
             }
