@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> Endpoint {
-    const MINIMUM_MAXIMUM_TRANSMISSION_UNIT: u16 = 2000;
+    const MINIMUM_MAXIMUM_TRANSMISSION_UNIT: u16 = 1350;
     const INITIAL_MAXIMUM_TRANSMISSION_UNIT: u16 = MINIMUM_MAXIMUM_TRANSMISSION_UNIT;
 
     let mut endpoint = {
@@ -49,9 +49,8 @@ pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> En
     .unwrap();
     transport_config.max_idle_timeout(Some(timeout));
     transport_config.keep_alive_interval(Some(Duration::from_secs(1)));
-    transport_config
-        .datagram_receive_buffer_size(Some(connection_parameters.recieve_window_size as usize));
-    transport_config.datagram_send_buffer_size(connection_parameters.recieve_window_size as usize);
+    transport_config.datagram_receive_buffer_size(None);
+    transport_config.datagram_send_buffer_size(0);
     transport_config.initial_mtu(INITIAL_MAXIMUM_TRANSMISSION_UNIT);
     transport_config.max_concurrent_bidi_streams(VarInt::from(
         connection_parameters.max_number_of_streams as u32,
@@ -62,6 +61,8 @@ pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> En
     transport_config.min_mtu(MINIMUM_MAXIMUM_TRANSMISSION_UNIT);
     transport_config.mtu_discovery_config(None);
     transport_config.enable_segmentation_offload(false);
+    transport_config.crypto_buffer_size(16 * 1024 * 1024); // 16 MB
+
     config.transport_config(Arc::new(transport_config));
 
     endpoint.set_default_client_config(config);
