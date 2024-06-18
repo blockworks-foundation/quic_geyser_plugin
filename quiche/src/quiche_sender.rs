@@ -72,7 +72,6 @@ pub fn handle_writable(
     }
 
     if written == resp.binary.len() {
-        log::debug!("fin writing stream : {}", stream_id);
         partial_responses.remove(&stream_id);
         // match conn.stream_send(stream_id, b"", true) {
         //     Ok(_) => {}

@@ -39,7 +39,6 @@ pub fn recv_message(
                 match &e {
                     quiche::Error::Done => {
                         // will be tried again later
-                        log::debug!("stream saved : {}. len: {}", stream_id, total_buf.len());
                         read_streams.insert(stream_id, total_buf);
                         return Ok(None);
                     }

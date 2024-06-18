@@ -262,9 +262,7 @@ pub fn server_loop(
                 socket.send_to(&buffer, send_info.to)
             };
             match send_result {
-                Ok(written) => {
-                    log::debug!("written {written:?} to {:?}", send_info.to);
-                }
+                Ok(_written) => {}
                 Err(e) => {
                     log::error!("sending failed with error : {e:?}");
                 }
