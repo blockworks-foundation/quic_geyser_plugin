@@ -1,4 +1,7 @@
-use crate::quiche_utils::{PartialResponse, PartialResponses};
+use crate::{
+    quiche_utils::{PartialResponse, PartialResponses},
+    stream_manager::StreamManager,
+};
 use quic_geyser_common::message::Message;
 use quiche::Connection;
 
@@ -36,6 +39,7 @@ pub fn send_message(
 pub fn handle_writable(
     conn: &mut quiche::Connection,
     partial_responses: &mut PartialResponses,
+    stream_manager: &mut StreamManager,
     stream_id: u64,
 ) -> std::result::Result<(), quiche::Error> {
     log::trace!("{} stream {} is writable", conn.trace_id(), stream_id);
@@ -44,7 +48,14 @@ pub fn handle_writable(
         Some(s) => s,
         None => {
             // stream has finished
-            let _ = conn.stream_shutdown(stream_id, quiche::Shutdown::Write, 0);
+            match conn.stream_shutdown(stream_id, quiche::Shutdown::Write, 0) {
+                Ok(()) => {
+                    stream_manager.reset_stream(stream_id);
+                }
+                Err(e) => {
+                    log::error!("error shutting down the stream : {e:?}")
+                }
+            }
             return Ok(());
         }
     };
@@ -72,15 +83,7 @@ pub fn handle_writable(
     }
 
     if written == resp.binary.len() {
-        log::debug!("fin writing stream : {}", stream_id);
         partial_responses.remove(&stream_id);
-        // match conn.stream_send(stream_id, b"", true) {
-        //     Ok(_) => {}
-        //     Err(quiche::Error::Done) => {}
-        //     Err(e) => {
-        //         log::error!("{} fin stream failed {:?}", conn.trace_id(), e);
-        //     }
-        // }
     } else {
         resp.binary = resp.binary[written..].to_vec();
         resp.written += written;

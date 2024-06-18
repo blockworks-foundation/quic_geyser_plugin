@@ -27,7 +27,8 @@ use quic_geyser_common::{
 use quic_geyser_quiche_utils::{
     quiche_reciever::{recv_message, ReadStreams},
     quiche_sender::{handle_writable, send_message},
-    quiche_utils::{get_next_unidi, mint_token, validate_token, PartialResponses},
+    quiche_utils::{mint_token, validate_token, PartialResponses},
+    stream_manager::StreamManager,
 };
 
 use crate::configure_server::configure_server;
@@ -47,7 +48,8 @@ pub fn server_loop(
     compression_type: CompressionType,
     stop_laggy_client: bool,
 ) -> anyhow::Result<()> {
-    let maximum_concurrent_streams_id = u64::MAX;
+    let max_concurrent_streams = quic_params.max_number_of_streams_per_client;
+
     let mut config = configure_server(quic_params)?;
 
     let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
@@ -219,7 +221,7 @@ pub fn server_loop(
                     write_sender.clone(),
                     client_message_rx,
                     filters.clone(),
-                    maximum_concurrent_streams_id,
+                    max_concurrent_streams,
                     stop_laggy_client,
                     messages_in_queue.clone(),
                     quic_params.incremental_priority,
@@ -280,7 +282,7 @@ fn create_client_task(
     sender: mpsc::Sender<(quiche::SendInfo, Vec<u8>)>,
     message_channel: mpsc::Receiver<(Vec<u8>, u8)>,
     filters: Arc<RwLock<Vec<Filter>>>,
-    maximum_concurrent_streams_id: u64,
+    max_concurrent_streams: u64,
     stop_laggy_client: bool,
     messages_in_queue: Arc<AtomicUsize>,
     incremental_priority: bool,
@@ -288,7 +290,6 @@ fn create_client_task(
     std::thread::spawn(move || {
         let mut partial_responses = PartialResponses::new();
         let mut read_streams = ReadStreams::new();
-        let mut next_stream: u64 = 3;
         let mut connection = connection;
         let mut instance = Instant::now();
         let mut closed = false;
@@ -297,6 +298,7 @@ fn create_client_task(
         let mut poll = mio::Poll::new().unwrap();
         let mut events = mio::Events::with_capacity(1024);
         let max_allowed_partial_responses = MAX_ALLOWED_PARTIAL_RESPONSES as usize;
+        let mut stream_manager = StreamManager::new(max_concurrent_streams as usize, true);
 
         poll.registry()
             .register(&mut receiver, mio::Token(0), mio::Interest::READABLE)
@@ -409,10 +411,23 @@ fn create_client_task(
             {
                 for stream_id in connection.writable() {
                     number_of_writable_streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if let Err(e) =
-                        handle_writable(&mut connection, &mut partial_responses, stream_id)
-                    {
-                        log::error!("Error writing {e:?}");
+                    if let Err(e) = handle_writable(
+                        &mut connection,
+                        &mut partial_responses,
+                        &mut stream_manager,
+                        stream_id,
+                    ) {
+                        if !closed {
+                            log::error!("error writing stream {}, error {}", stream_id, e);
+                            if let Err(e) = connection.close(true, 1, b"laggy client") {
+                                if e != quiche::Error::Done {
+                                    log::error!("error closing client : {}", e);
+                                }
+                            } else {
+                                log::info!("Stopping laggy client : {}", connection.trace_id(),);
+                            }
+                            closed = true;
+                        }
                     }
                 }
 
@@ -420,9 +435,7 @@ fn create_client_task(
                     let close = match message_channel.try_recv() {
                         Ok((message, priority)) => {
                             messages_in_queue.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                            let stream_id = next_stream;
-                            next_stream =
-                                get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
+                            let stream_id = stream_manager.get();
 
                             if let Err(e) = connection.stream_priority(
                                 stream_id,

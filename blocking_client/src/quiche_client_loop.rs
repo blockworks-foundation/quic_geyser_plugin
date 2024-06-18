@@ -10,6 +10,7 @@ use quic_geyser_quiche_utils::{
     quiche_reciever::{recv_message, ReadStreams},
     quiche_sender::{handle_writable, send_message},
     quiche_utils::{get_next_unidi, PartialResponses},
+    stream_manager::StreamManager,
 };
 
 use anyhow::bail;
@@ -145,6 +146,7 @@ pub fn create_quiche_client_thread(
         let mut read_streams = ReadStreams::new();
         let mut connected = false;
         let mut instance = Instant::now();
+        let mut stream_manager = StreamManager::new(1024, false);
         let ping_message = bincode::serialize(&Message::Ping).unwrap();
 
         'client: loop {
@@ -243,8 +245,12 @@ pub fn create_quiche_client_thread(
             }
 
             for stream_id in connection.writable() {
-                if let Err(e) = handle_writable(&mut connection, &mut partial_responses, stream_id)
-                {
+                if let Err(e) = handle_writable(
+                    &mut connection,
+                    &mut partial_responses,
+                    &mut stream_manager,
+                    stream_id,
+                ) {
                     log::error!("Error writing message on writable stream : {e:?}");
                 }
             }
