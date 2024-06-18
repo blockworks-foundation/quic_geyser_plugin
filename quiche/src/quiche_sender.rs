@@ -38,8 +38,6 @@ pub fn handle_writable(
     partial_responses: &mut PartialResponses,
     stream_id: u64,
 ) -> std::result::Result<(), quiche::Error> {
-    log::trace!("{} stream {} is writable", conn.trace_id(), stream_id);
-
     let resp = match partial_responses.get_mut(&stream_id) {
         Some(s) => s,
         None => {
