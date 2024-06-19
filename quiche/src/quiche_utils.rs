@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use ring::rand::SecureRandom;
+
 pub fn validate_token<'a>(
     src: &std::net::SocketAddr,
     token: &'a [u8],
@@ -81,6 +83,83 @@ pub fn get_next_unidi(
         }
         current_stream_id = 0;
     }
+}
+
+pub fn handle_path_events(conn: &mut quiche::Connection) {
+    while let Some(qe) = conn.path_event_next() {
+        match qe {
+            quiche::PathEvent::New(local_addr, peer_addr) => {
+                log::info!(
+                    "{} Seen new path ({}, {})",
+                    conn.trace_id(),
+                    local_addr,
+                    peer_addr
+                );
+
+                // Directly probe the new path.
+                conn.probe_path(local_addr, peer_addr)
+                    .expect("cannot probe");
+            }
+
+            quiche::PathEvent::Validated(local_addr, peer_addr) => {
+                log::info!(
+                    "{} Path ({}, {}) is now validated",
+                    conn.trace_id(),
+                    local_addr,
+                    peer_addr
+                );
+            }
+
+            quiche::PathEvent::FailedValidation(local_addr, peer_addr) => {
+                log::info!(
+                    "{} Path ({}, {}) failed validation",
+                    conn.trace_id(),
+                    local_addr,
+                    peer_addr
+                );
+            }
+
+            quiche::PathEvent::Closed(local_addr, peer_addr) => {
+                log::info!(
+                    "{} Path ({}, {}) is now closed and unusable",
+                    conn.trace_id(),
+                    local_addr,
+                    peer_addr
+                );
+            }
+
+            quiche::PathEvent::ReusedSourceConnectionId(cid_seq, old, new) => {
+                log::info!(
+                    "{} Peer reused cid seq {} (initially {:?}) on {:?}",
+                    conn.trace_id(),
+                    cid_seq,
+                    old,
+                    new
+                );
+            }
+
+            quiche::PathEvent::PeerMigrated(local_addr, peer_addr) => {
+                log::info!(
+                    "{} Connection migrated to ({}, {})",
+                    conn.trace_id(),
+                    local_addr,
+                    peer_addr
+                );
+            }
+        }
+    }
+}
+
+pub fn generate_cid_and_reset_token<T: SecureRandom>(
+    rng: &T,
+) -> (quiche::ConnectionId<'static>, u128) {
+    let mut scid = [0; quiche::MAX_CONN_ID_LEN];
+    rng.fill(&mut scid).unwrap();
+    let scid = scid.to_vec().into();
+    let mut reset_token = [0; 16];
+    rng.fill(&mut reset_token).unwrap();
+    let reset_token = u128::from_be_bytes(reset_token);
+    (scid, reset_token)
 }
 
 pub struct PartialResponse {
