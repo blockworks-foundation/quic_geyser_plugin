@@ -2802,6 +2802,7 @@ dependencies = [
  "bincode",
  "clap",
  "log",
+ "quic-geyser-blocking-client",
  "quic-geyser-client",
  "quic-geyser-common",
  "serde",

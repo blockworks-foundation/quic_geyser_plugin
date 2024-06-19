@@ -41,8 +41,9 @@ pub fn handle_writable(
     let resp = match partial_responses.get_mut(&stream_id) {
         Some(s) => s,
         None => {
-            // stream has finished
-            let _ = conn.stream_shutdown(stream_id, quiche::Shutdown::Write, 0);
+            if let Err(e) = conn.stream_shutdown(stream_id, quiche::Shutdown::Write, 0) {
+                log::error!("error shutting down stream {stream_id:?}, error :{e}");
+            }
             return Ok(());
         }
     };
@@ -51,8 +52,8 @@ pub fn handle_writable(
     let written = match conn.stream_send(stream_id, body, true) {
         Ok(v) => v,
         Err(quiche::Error::Done) => {
-            // done writing
-            return Ok(());
+            //  above
+            return Err(quiche::Error::Done);
         }
         Err(e) => {
             partial_responses.remove(&stream_id);

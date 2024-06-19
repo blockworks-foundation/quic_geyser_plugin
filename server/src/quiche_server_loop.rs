@@ -51,17 +51,15 @@ pub fn server_loop(
     stop_laggy_client: bool,
 ) -> anyhow::Result<()> {
     let maximum_concurrent_streams_id = u64::MAX;
+    let max_messages_in_queue = quic_params.max_messages_in_queue;
     let mut config = configure_server(quic_params)?;
 
     let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
     let mut poll = mio::Poll::new()?;
     let mut events = mio::Events::with_capacity(1024);
 
-    poll.registry().register(
-        &mut socket,
-        mio::Token(0),
-        mio::Interest::READABLE | mio::Interest::WRITABLE,
-    )?;
+    poll.registry()
+        .register(&mut socket, mio::Token(0), mio::Interest::READABLE)?;
 
     let mut buf = [0; 65535];
     let mut out = [0; MAX_DATAGRAM_SIZE];
@@ -76,13 +74,17 @@ pub fn server_loop(
     let clients_by_id: Arc<Mutex<HashMap<ConnectionId<'static>, u64>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
-    let (write_sender, write_reciver) = std::sync::mpsc::channel::<(quiche::SendInfo, Vec<u8>)>();
+    let (write_sender, mut write_reciver) = mio_channel::channel::<(quiche::SendInfo, Vec<u8>)>();
+
+    poll.registry()
+        .register(&mut write_reciver, mio::Token(1), mio::Interest::READABLE)?;
 
     let enable_pacing = if quic_params.enable_pacing {
         set_txtime_sockopt(&socket).is_ok()
     } else {
         false
     };
+    log::info!("pacing is enabled on server : {enable_pacing:?}");
 
     let dispatching_connections: DispachingConnections = Arc::new(Mutex::new(HashMap::<
         ConnectionId<'static>,
@@ -93,6 +95,7 @@ pub fn server_loop(
         message_send_queue,
         dispatching_connections.clone(),
         compression_type,
+        max_messages_in_queue,
     );
     let mut client_id_counter = 0;
 
@@ -292,7 +295,7 @@ fn create_client_task(
     client_id: u64,
     client_id_by_scid: Arc<Mutex<HashMap<ConnectionId<'static>, u64>>>,
     mut receiver: mio_channel::Receiver<(quiche::RecvInfo, Vec<u8>)>,
-    sender: mpsc::Sender<(quiche::SendInfo, Vec<u8>)>,
+    sender: mio_channel::Sender<(quiche::SendInfo, Vec<u8>)>,
     message_channel: mpsc::Receiver<(Vec<u8>, u8)>,
     filters: Arc<RwLock<Vec<Filter>>>,
     maximum_concurrent_streams_id: u64,
@@ -312,7 +315,11 @@ fn create_client_task(
 
         let mut poll = mio::Poll::new().unwrap();
         let mut events = mio::Events::with_capacity(1024);
-        let max_allowed_partial_responses = MAX_ALLOWED_PARTIAL_RESPONSES as usize;
+        let mut max_allowed_partial_responses = MAX_ALLOWED_PARTIAL_RESPONSES as usize;
+        let upper_limit_allowed_partial_responses =
+            (MAX_ALLOWED_PARTIAL_RESPONSES * 9 / 10) as usize;
+        let lower_limit_allowed_partial_responses =
+            (MAX_ALLOWED_PARTIAL_RESPONSES * 3 / 4) as usize;
 
         poll.registry()
             .register(&mut receiver, mio::Token(0), mio::Interest::READABLE)
@@ -371,7 +378,6 @@ fn create_client_task(
                 }
             });
         }
-
         loop {
             number_of_loops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             poll.poll(&mut events, Some(Duration::from_millis(1)))
@@ -423,16 +429,25 @@ fn create_client_task(
             if !connection.is_closed()
                 && (connection.is_established() || connection.is_in_early_data())
             {
+                let mut is_writable = true;
                 for stream_id in connection.writable() {
-                    number_of_writable_streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if let Err(e) =
                         handle_writable(&mut connection, &mut partial_responses, stream_id)
                     {
-                        log::error!("Error writing {e:?}");
+                        if e == quiche::Error::Done {
+                            is_writable = false;
+                            break;
+                        }
+                        if !closed {
+                            log::error!("Error writing {e:?}");
+                            let _ = connection.close(true, 1, b"stream stopped");
+                            closed = true;
+                            break;
+                        }
                     }
                 }
 
-                while partial_responses.len() < max_allowed_partial_responses {
+                while is_writable && partial_responses.len() < max_allowed_partial_responses {
                     let close = match message_channel.try_recv() {
                         Ok((message, priority)) => {
                             messages_in_queue.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
@@ -500,6 +515,11 @@ fn create_client_task(
                     }
                 }
             }
+            if partial_responses.len() > upper_limit_allowed_partial_responses {
+                max_allowed_partial_responses = lower_limit_allowed_partial_responses;
+            } else {
+                max_allowed_partial_responses = MAX_ALLOWED_PARTIAL_RESPONSES as usize;
+            }
 
             if instance.elapsed() > Duration::from_secs(1) {
                 instance = Instant::now();
@@ -563,8 +583,10 @@ fn create_dispatching_thread(
     message_send_queue: mpsc::Receiver<ChannelMessage>,
     dispatching_connections: DispachingConnections,
     compression_type: CompressionType,
+    max_messages_in_queue: u64,
 ) {
     std::thread::spawn(move || {
+        let max_messages_in_queue = max_messages_in_queue as usize;
         while let Ok(message) = message_send_queue.recv() {
             let mut dispatching_connections_lk = dispatching_connections.lock().unwrap();
 
@@ -612,9 +634,12 @@ fn create_dispatching_thread(
                     bincode::serialize(&message).expect("Message should be serializable in binary");
                 for id in dispatching_connections.iter() {
                     let data = dispatching_connections_lk.get(id).unwrap();
-                    data.messages_in_queue
+                    let messages_in_queue = data
+                        .messages_in_queue
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if data.sender.send((binary.clone(), priority)).is_err() {
+                    if data.sender.send((binary.clone(), priority)).is_err()
+                        || messages_in_queue > max_messages_in_queue
+                    {
                         // client is closed
                         dispatching_connections_lk.remove(id);
                     }

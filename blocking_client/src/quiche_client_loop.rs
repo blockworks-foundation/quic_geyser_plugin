@@ -245,7 +245,9 @@ pub fn create_quiche_client_thread(
             for stream_id in connection.writable() {
                 if let Err(e) = handle_writable(&mut connection, &mut partial_responses, stream_id)
                 {
-                    log::error!("Error writing message on writable stream : {e:?}");
+                    if e != quiche::Error::Done {
+                        log::error!("Error writing message on writable stream : {e:?}");
+                    }
                 }
             }
 
