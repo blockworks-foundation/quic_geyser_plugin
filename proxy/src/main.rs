@@ -34,6 +34,7 @@ pub fn main() -> anyhow::Result<()> {
         Filter::TransactionsAll,
         Filter::Slot,
         Filter::BlockMeta,
+        Filter::BlockAll,
     ])?;
 
     let quic_config = ConfigQuicPlugin {
@@ -57,6 +58,7 @@ pub fn main() -> anyhow::Result<()> {
         allow_accounts: true,
         allow_accounts_at_startup: false,
         enable_block_builder: false,
+        build_blocks_with_accounts: false,
     };
 
     let (server_sender, server_reciever) = std::sync::mpsc::channel::<ChannelMessage>();

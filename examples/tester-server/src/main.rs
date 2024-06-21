@@ -35,6 +35,7 @@ pub fn main() {
         allow_accounts: true,
         allow_accounts_at_startup: false,
         enable_block_builder: true,
+        build_blocks_with_accounts: true,
     };
     let quic_server = QuicServer::new(config).unwrap();
 

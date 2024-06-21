@@ -18,9 +18,15 @@ pub fn start_block_building_thread(
     channel_messages: Receiver<ChannelMessage>,
     output: Sender<ChannelMessage>,
     compression_type: CompressionType,
+    build_blocks_with_accounts: bool,
 ) {
     std::thread::spawn(move || {
-        build_blocks(channel_messages, output, compression_type);
+        build_blocks(
+            channel_messages,
+            output,
+            compression_type,
+            build_blocks_with_accounts,
+        );
     });
 }
 
@@ -35,32 +41,35 @@ pub fn build_blocks(
     channel_messages: Receiver<ChannelMessage>,
     output: Sender<ChannelMessage>,
     compression_type: CompressionType,
+    build_blocks_with_accounts: bool,
 ) {
     let mut partially_build_blocks = BTreeMap::<u64, PartialBlock>::new();
     while let Ok(channel_message) = channel_messages.recv() {
         match channel_message {
             ChannelMessage::Account(account_data, slot) => {
-                if let Some(lowest) = partially_build_blocks.first_entry() {
-                    if *lowest.key() > slot {
-                        log::error!("Account update is too late the slot data has already been dispactched lowest slot: {}, account slot: {}", lowest.key(), slot);
+                if build_blocks_with_accounts {
+                    if let Some(lowest) = partially_build_blocks.first_entry() {
+                        if *lowest.key() > slot {
+                            log::error!("Account update is too late the slot data has already been dispactched lowest slot: {}, account slot: {}", lowest.key(), slot);
+                        }
                     }
-                }
-                // save account updates
-                let partial_block = match partially_build_blocks.get_mut(&slot) {
-                    Some(pb) => pb,
-                    None => {
-                        partially_build_blocks.insert(slot, PartialBlock::default());
-                        partially_build_blocks.get_mut(&slot).unwrap()
+                    // save account updates
+                    let partial_block = match partially_build_blocks.get_mut(&slot) {
+                        Some(pb) => pb,
+                        None => {
+                            partially_build_blocks.insert(slot, PartialBlock::default());
+                            partially_build_blocks.get_mut(&slot).unwrap()
+                        }
+                    };
+                    let update = match partial_block.account_updates.get(&account_data.pubkey) {
+                        Some(prev_update) => prev_update.write_version < account_data.write_version,
+                        None => true,
+                    };
+                    if update {
+                        partial_block
+                            .account_updates
+                            .insert(account_data.pubkey, account_data);
                     }
-                };
-                let update = match partial_block.account_updates.get(&account_data.pubkey) {
-                    Some(prev_update) => prev_update.write_version < account_data.write_version,
-                    None => true,
-                };
-                if update {
-                    partial_block
-                        .account_updates
-                        .insert(account_data.pubkey, account_data);
                 }
             }
             ChannelMessage::Slot(slot, _parent_slot, commitment) => {

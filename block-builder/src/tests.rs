@@ -1,4 +1,3 @@
-
 use std::{
     collections::HashMap,
     sync::mpsc::{channel, TryRecvError},
@@ -38,6 +37,7 @@ fn test_block_creation_transactions_after_blockmeta() {
         cm_rx,
         ms_sx,
         quic_geyser_common::compression::CompressionType::None,
+        true,
     );
 
     let acc1_pk = Pubkey::new_unique();
@@ -261,6 +261,7 @@ fn test_block_creation_blockmeta_after_transactions() {
         cm_rx,
         ms_sx,
         quic_geyser_common::compression::CompressionType::None,
+        true,
     );
 
     let acc1_pk = Pubkey::new_unique();
@@ -485,6 +486,7 @@ fn test_block_creation_incomplete_block_after_slot_notification() {
         cm_rx,
         ms_sx,
         quic_geyser_common::compression::CompressionType::None,
+        true,
     );
 
     let acc1_pk = Pubkey::new_unique();
@@ -708,6 +710,7 @@ fn test_block_creation_incomplete_slot() {
         cm_rx,
         ms_sx,
         quic_geyser_common::compression::CompressionType::None,
+        true,
     );
 
     let acc1_pk = Pubkey::new_unique();

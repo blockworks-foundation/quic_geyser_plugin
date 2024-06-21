@@ -32,6 +32,8 @@ pub struct ConfigQuicPlugin {
     pub allow_accounts_at_startup: bool,
     #[serde(default = "ConfigQuicPlugin::default_enable_block_builder")]
     pub enable_block_builder: bool,
+    #[serde(default)]
+    pub build_blocks_with_accounts: bool,
 }
 
 impl ConfigQuicPlugin {

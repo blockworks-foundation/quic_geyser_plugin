@@ -256,6 +256,7 @@ mod tests {
                     allow_accounts: true,
                     allow_accounts_at_startup: false,
                     enable_block_builder: false,
+                    build_blocks_with_accounts: false,
                 };
                 let quic_server = QuicServer::new(config).unwrap();
                 // wait for client to connect and subscribe

@@ -36,6 +36,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
         let config = Config::load_from_file(config_file)?;
         let compression_type = config.quic_plugin.compression_parameters.compression_type;
         let enable_block_builder = config.quic_plugin.enable_block_builder;
+        let build_blocks_with_accounts = config.quic_plugin.build_blocks_with_accounts;
         log::info!("Quic plugin config correctly loaded");
         solana_logger::setup_with_default(&config.quic_plugin.log_level);
         let quic_server = QuicServer::new(config.quic_plugin).map_err(|_| {
@@ -47,6 +48,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
                 rx,
                 quic_server.data_channel_sender.clone(),
                 compression_type,
+                build_blocks_with_accounts,
             );
             self.block_builder_channel = Some(sx);
         }
