@@ -21,11 +21,13 @@ license = "AGPL"
 edition = "2021"
 
 [workspace.dependencies]
-solana-sdk = "~1.18.15"
-solana-program = "~1.18.15"
-solana-transaction-status = "~1.18.15"
-solana-logger = "~1.18.15"
-solana-rpc-client = "~1.18.15"
+solana-sdk = "~1.18.16"
+solana-program = "~1.18.16"
+solana-transaction-status = "~1.18.16"
+solana-logger = "~1.18.16"
+solana-rpc-client = "~1.18.16"
+
+agave-geyser-plugin-interface = "=1.18.16"
 
 itertools = "0.10.5"
 serde = "1.0.201"
@@ -70,3 +72,10 @@ quic-geyser-block-builder = {path = "block-builder", version = "0.1.5"}
 debug = true
 lto = true
 codegen-units = 1
+
+[patch.crates-io]
+agave-geyser-plugin-interface = { git = "https://github.com/blockworks-foundation/solana.git", branch = "v1.18.16_mango_rpc_optimizations" }
+solana-logger = { git = "https://github.com/blockworks-foundation/solana.git", branch = "v1.18.16_mango_rpc_optimizations" }
+solana-program = { git = "https://github.com/blockworks-foundation/solana.git", branch = "v1.18.16_mango_rpc_optimizations" }
+solana-sdk = { git = "https://github.com/blockworks-foundation/solana.git", branch = "v1.18.16_mango_rpc_optimizations" }
+solana-transaction-status = { git = "https://github.com/blockworks-foundation/solana.git", branch = "v1.18.16_mango_rpc_optimizations" }
