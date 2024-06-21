@@ -131,6 +131,8 @@ mod tests {
         filters::{AccountFilter, AccountFilterType, MemcmpFilter},
     };
 
+    // asserts are more readable like this
+    #[allow(clippy::bool_assert_comparison)]
     #[test]
     fn test_accounts_filter() {
         let owner = Pubkey::new_unique();

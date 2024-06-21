@@ -11,7 +11,7 @@ pub fn send_message(
     connection: &mut Connection,
     partial_responses: &mut PartialResponses,
     stream_id: u64,
-    message: &Vec<u8>,
+    message: &[u8],
 ) -> std::result::Result<(), quiche::Error> {
     let written = match connection.stream_send(stream_id, message, true) {
         Ok(v) => v,

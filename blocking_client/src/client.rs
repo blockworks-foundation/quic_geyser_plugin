@@ -115,7 +115,6 @@ mod tests {
 
         let jh = {
             let msgs = msgs.clone();
-            let server_sock = server_sock.clone();
             std::thread::spawn(move || {
                 let config = ConfigQuicPlugin {
                     address: server_sock,
@@ -169,12 +168,10 @@ mod tests {
         .unwrap();
         client.subscribe(vec![Filter::AccountsAll]).unwrap();
 
-        let mut cnt = 0;
-        for message_sent in msgs {
+        for (cnt, message_sent) in msgs.iter().enumerate() {
             let msg = reciever.recv().unwrap();
             log::info!("got message : {}", cnt);
-            cnt += 1;
-            assert_eq!(message_sent, msg);
+            assert_eq!(*message_sent, msg);
         }
         jh.join().unwrap();
     }
