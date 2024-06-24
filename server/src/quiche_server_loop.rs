@@ -11,6 +11,7 @@ use std::{
 
 use anyhow::bail;
 use itertools::Itertools;
+use mio::Token;
 use quiche::ConnectionId;
 use ring::rand::SystemRandom;
 
@@ -101,176 +102,180 @@ pub fn server_loop(
 
     loop {
         poll.poll(&mut events, Some(Duration::from_millis(10)))?;
-        'read: loop {
-            let (len, from) = match socket.recv_from(&mut buf) {
-                Ok(v) => v,
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                        log::trace!("recv() would block");
-                        break 'read;
-                    }
-                    bail!("recv() failed: {:?}", e);
-                }
-            };
-
-            let pkt_buf = &mut buf[..len];
-
-            // Parse the QUIC packet's header.
-            let hdr = match quiche::Header::from_slice(pkt_buf, quiche::MAX_CONN_ID_LEN) {
-                Ok(v) => v,
-
-                Err(e) => {
-                    log::error!("Parsing packet header failed: {:?}", e);
-                    continue 'read;
-                }
-            };
-
-            let conn_id = ring::hmac::sign(&conn_id_seed, &hdr.dcid);
-            let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
-            let conn_id: ConnectionId<'static> = conn_id.to_vec().into();
-            let mut clients_lk = clients_by_id.lock().unwrap();
-            if !clients_lk.contains_key(&hdr.dcid) && !clients_lk.contains_key(&conn_id) {
-                if hdr.ty != quiche::Type::Initial {
-                    log::error!("Packet is not Initial");
-                    continue 'read;
-                }
-
-                if !quiche::version_is_supported(hdr.version) {
-                    log::warn!("Doing version negotiation");
-                    let len = quiche::negotiate_version(&hdr.scid, &hdr.dcid, &mut out).unwrap();
-
-                    let out = &out[..len];
-
-                    if let Err(e) = socket.send_to(out, from) {
-                        if e.kind() == std::io::ErrorKind::WouldBlock {
-                            break;
-                        }
-                        panic!("send() failed: {:?}", e);
-                    }
-                    continue 'read;
-                }
-
-                let mut scid = [0; quiche::MAX_CONN_ID_LEN];
-                scid.copy_from_slice(&conn_id);
-
-                let scid = quiche::ConnectionId::from_ref(&scid);
-
-                // Token is always present in Initial packets.
-                let token = hdr.token.as_ref().unwrap();
-
-                // Do stateless retry if the client didn't send a token.
-                if token.is_empty() {
-                    log::debug!("Doing stateless retry");
-
-                    let new_token = mint_token(&hdr, &from);
-
-                    let len = quiche::retry(
-                        &hdr.scid,
-                        &hdr.dcid,
-                        &scid,
-                        &new_token,
-                        hdr.version,
-                        &mut out,
-                    )
-                    .unwrap();
-
-                    if let Err(e) = socket.send_to(&out[..len], from) {
-                        log::error!("Error sending retry messages : {e:?}");
-                    }
-                    continue 'read;
-                }
-
-                let odcid = validate_token(&from, token);
-
-                if odcid.is_none() {
-                    log::error!("Invalid address validation token");
-                    continue 'read;
-                }
-
-                if scid.len() != hdr.dcid.len() {
-                    log::error!("Invalid destination connection ID");
-                    continue 'read;
-                }
-
-                let scid = hdr.dcid.clone();
-
-                log::info!("New connection: dcid={:?} scid={:?}", hdr.dcid, scid);
-
-                let mut conn =
-                    quiche::accept(&scid, odcid.as_ref(), local_addr, from, &mut config)?;
-
-                let recv_info = quiche::RecvInfo {
-                    to: socket.local_addr().unwrap(),
-                    from,
-                };
-                // Process potentially coalesced packets.
-                match conn.recv(pkt_buf, recv_info) {
+        let do_read = events.is_empty() || events.iter().any(|x| x.token() == Token(0));
+        if do_read {
+            'read: loop {
+                let (len, from) = match socket.recv_from(&mut buf) {
                     Ok(v) => v,
                     Err(e) => {
-                        log::error!("{} recv failed: {:?}", conn.trace_id(), e);
+                        if e.kind() == std::io::ErrorKind::WouldBlock {
+                            log::trace!("recv() would block");
+                            break 'read;
+                        }
+                        bail!("recv() failed: {:?}", e);
+                    }
+                };
+
+                let pkt_buf = &mut buf[..len];
+
+                // Parse the QUIC packet's header.
+                let hdr = match quiche::Header::from_slice(pkt_buf, quiche::MAX_CONN_ID_LEN) {
+                    Ok(v) => v,
+
+                    Err(e) => {
+                        log::error!("Parsing packet header failed: {:?}", e);
                         continue 'read;
                     }
                 };
 
-                let (client_sender, client_reciver) = mio_channel::channel();
-                let (client_message_sx, client_message_rx) = mpsc::channel();
-                let messages_in_queue = Arc::new(AtomicUsize::new(0));
-                let current_client_id = client_id_counter;
-                client_id_counter += 1;
+                let conn_id = ring::hmac::sign(&conn_id_seed, &hdr.dcid);
+                let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
+                let conn_id: ConnectionId<'static> = conn_id.to_vec().into();
+                let mut clients_lk = clients_by_id.lock().unwrap();
+                if !clients_lk.contains_key(&hdr.dcid) && !clients_lk.contains_key(&conn_id) {
+                    if hdr.ty != quiche::Type::Initial {
+                        log::error!("Packet is not Initial");
+                        continue 'read;
+                    }
 
-                let filters = Arc::new(RwLock::new(Vec::new()));
-                create_client_task(
-                    conn,
-                    current_client_id,
-                    clients_by_id.clone(),
-                    client_reciver,
-                    write_sender.clone(),
-                    client_message_rx,
-                    filters.clone(),
-                    maximum_concurrent_streams_id,
-                    stop_laggy_client,
-                    messages_in_queue.clone(),
-                    quic_params.incremental_priority,
-                    rng.clone(),
-                );
-                let mut lk = dispatching_connections.lock().unwrap();
-                lk.insert(
-                    scid.clone(),
-                    DispatchingData {
-                        sender: client_message_sx,
-                        filters,
-                        messages_in_queue,
-                    },
-                );
-                clients_lk.insert(scid, current_client_id);
-                client_messsage_channel_by_id.insert(current_client_id, client_sender);
-            } else {
-                // get the existing client
-                let client_id = match clients_lk.get(&hdr.dcid) {
-                    Some(v) => *v,
-                    None => *clients_lk
-                        .get(&conn_id)
-                        .expect("The client should exist in the map"),
-                };
+                    if !quiche::version_is_supported(hdr.version) {
+                        log::warn!("Doing version negotiation");
+                        let len =
+                            quiche::negotiate_version(&hdr.scid, &hdr.dcid, &mut out).unwrap();
 
-                let recv_info = quiche::RecvInfo {
-                    to: socket.local_addr().unwrap(),
-                    from,
-                };
-                match client_messsage_channel_by_id.get_mut(&client_id) {
-                    Some(channel) => {
-                        if channel.send((recv_info, pkt_buf.to_vec())).is_err() {
-                            // client is closed
-                            clients_lk.remove(&hdr.dcid);
-                            clients_lk.remove(&conn_id);
-                            client_messsage_channel_by_id.remove(&client_id);
+                        let out = &out[..len];
+
+                        if let Err(e) = socket.send_to(out, from) {
+                            if e.kind() == std::io::ErrorKind::WouldBlock {
+                                break;
+                            }
+                            panic!("send() failed: {:?}", e);
+                        }
+                        continue 'read;
+                    }
+
+                    let mut scid = [0; quiche::MAX_CONN_ID_LEN];
+                    scid.copy_from_slice(&conn_id);
+
+                    let scid = quiche::ConnectionId::from_ref(&scid);
+
+                    // Token is always present in Initial packets.
+                    let token = hdr.token.as_ref().unwrap();
+
+                    // Do stateless retry if the client didn't send a token.
+                    if token.is_empty() {
+                        log::debug!("Doing stateless retry");
+
+                        let new_token = mint_token(&hdr, &from);
+
+                        let len = quiche::retry(
+                            &hdr.scid,
+                            &hdr.dcid,
+                            &scid,
+                            &new_token,
+                            hdr.version,
+                            &mut out,
+                        )
+                        .unwrap();
+
+                        if let Err(e) = socket.send_to(&out[..len], from) {
+                            log::error!("Error sending retry messages : {e:?}");
+                        }
+                        continue 'read;
+                    }
+
+                    let odcid = validate_token(&from, token);
+
+                    if odcid.is_none() {
+                        log::error!("Invalid address validation token");
+                        continue 'read;
+                    }
+
+                    if scid.len() != hdr.dcid.len() {
+                        log::error!("Invalid destination connection ID");
+                        continue 'read;
+                    }
+
+                    let scid = hdr.dcid.clone();
+
+                    log::info!("New connection: dcid={:?} scid={:?}", hdr.dcid, scid);
+
+                    let mut conn =
+                        quiche::accept(&scid, odcid.as_ref(), local_addr, from, &mut config)?;
+
+                    let recv_info = quiche::RecvInfo {
+                        to: socket.local_addr().unwrap(),
+                        from,
+                    };
+                    // Process potentially coalesced packets.
+                    match conn.recv(pkt_buf, recv_info) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            log::error!("{} recv failed: {:?}", conn.trace_id(), e);
+                            continue 'read;
+                        }
+                    };
+
+                    let (client_sender, client_reciver) = mio_channel::channel();
+                    let (client_message_sx, client_message_rx) = mpsc::channel();
+                    let messages_in_queue = Arc::new(AtomicUsize::new(0));
+                    let current_client_id = client_id_counter;
+                    client_id_counter += 1;
+
+                    let filters = Arc::new(RwLock::new(Vec::new()));
+                    create_client_task(
+                        conn,
+                        current_client_id,
+                        clients_by_id.clone(),
+                        client_reciver,
+                        write_sender.clone(),
+                        client_message_rx,
+                        filters.clone(),
+                        maximum_concurrent_streams_id,
+                        stop_laggy_client,
+                        messages_in_queue.clone(),
+                        quic_params.incremental_priority,
+                        rng.clone(),
+                    );
+                    let mut lk = dispatching_connections.lock().unwrap();
+                    lk.insert(
+                        scid.clone(),
+                        DispatchingData {
+                            sender: client_message_sx,
+                            filters,
+                            messages_in_queue,
+                        },
+                    );
+                    clients_lk.insert(scid, current_client_id);
+                    client_messsage_channel_by_id.insert(current_client_id, client_sender);
+                } else {
+                    // get the existing client
+                    let client_id = match clients_lk.get(&hdr.dcid) {
+                        Some(v) => *v,
+                        None => *clients_lk
+                            .get(&conn_id)
+                            .expect("The client should exist in the map"),
+                    };
+
+                    let recv_info = quiche::RecvInfo {
+                        to: socket.local_addr().unwrap(),
+                        from,
+                    };
+                    match client_messsage_channel_by_id.get_mut(&client_id) {
+                        Some(channel) => {
+                            if channel.send((recv_info, pkt_buf.to_vec())).is_err() {
+                                // client is closed
+                                clients_lk.remove(&hdr.dcid);
+                                clients_lk.remove(&conn_id);
+                                client_messsage_channel_by_id.remove(&client_id);
+                            }
+                        }
+                        None => {
+                            log::error!("channel with client id {client_id} not found");
                         }
                     }
-                    None => {
-                        log::error!("channel with client id {client_id} not found");
-                    }
-                }
-            };
+                };
+            }
         }
 
         while let Ok((send_info, buffer)) = write_reciver.try_recv() {
