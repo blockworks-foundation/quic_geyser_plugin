@@ -131,14 +131,8 @@ fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>
 
     sleep(Duration::from_secs(1));
     let mut filters = vec![Filter::Slot, Filter::BlockMeta];
-
-    if args.blocks_instead_of_accounts {
-        filters.push(Filter::BlockAll);
-    } else {
-        filters.push(Filter::AccountsAll);
-        filters.push(Filter::TransactionsAll);
-    };
-
+    filters.push(Filter::BlockAll);
+    filters.push(Filter::AccountsAll);
     println!("Subscribing");
     client.subscribe(filters).unwrap();
     println!("Subscribed");
@@ -244,13 +238,8 @@ async fn non_blocking(args: Args, client_stats: ClientStats, break_thread: Arc<A
 
     tokio::time::sleep(Duration::from_secs(1)).await;
     let mut filters = vec![Filter::Slot, Filter::BlockMeta];
-
-    if args.blocks_instead_of_accounts {
-        filters.push(Filter::BlockAll);
-    } else {
-        filters.push(Filter::AccountsAll);
-        filters.push(Filter::TransactionsAll);
-    };
+    filters.push(Filter::BlockAll);
+    filters.push(Filter::AccountsAll);
 
     println!("Subscribing");
     client.subscribe(filters).await.unwrap();
@@ -375,12 +364,16 @@ pub async fn main() {
     if let Some(rpc_url) = rpc_url {
         let cluster_slot = client_stats.cluster_slot.clone();
         let rpc = RpcClient::new(rpc_url);
+        let mut last_slot = 0;
         std::thread::spawn(move || loop {
-            sleep(Duration::from_millis(100));
-            let slot = rpc
-                .get_slot_with_commitment(CommitmentConfig::processed())
-                .unwrap();
-            cluster_slot.store(slot, std::sync::atomic::Ordering::Relaxed);
+            sleep(Duration::from_millis(200));
+            if let Ok(slot) = rpc
+                .get_slot_with_commitment(CommitmentConfig::processed()) {
+                    if last_slot < slot {
+                        last_slot = slot;
+                        cluster_slot.store(slot, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
         });
     }
 
