@@ -110,12 +110,17 @@ impl Client {
         {
             let connection = connection.clone();
             tokio::spawn(async move {
+                // limit client to respond to 128k streams in parallel
+                let semaphore = Arc::new(tokio::sync::Semaphore::new(128 * 1024));
                 loop {
-                    let stream = connection.accept_uni().await;
+                    let permit = semaphore.clone().acquire_owned().await.unwrap();
+                    let stream: Result<RecvStream, ConnectionError> = connection.accept_uni().await;
                     match stream {
                         Ok(recv_stream) => {
                             let sender = message_sx_queue.clone();
                             tokio::spawn(async move {
+                                //
+                                let _permit = permit;
                                 let message = recv_message(recv_stream, timeout).await;
                                 match message {
                                     Ok(message) => {
