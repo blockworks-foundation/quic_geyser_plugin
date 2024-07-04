@@ -367,13 +367,12 @@ pub async fn main() {
         let mut last_slot = 0;
         std::thread::spawn(move || loop {
             sleep(Duration::from_millis(200));
-            if let Ok(slot) = rpc
-                .get_slot_with_commitment(CommitmentConfig::processed()) {
-                    if last_slot < slot {
-                        last_slot = slot;
-                        cluster_slot.store(slot, std::sync::atomic::Ordering::Relaxed);
-                    }
+            if let Ok(slot) = rpc.get_slot_with_commitment(CommitmentConfig::processed()) {
+                if last_slot < slot {
+                    last_slot = slot;
+                    cluster_slot.store(slot, std::sync::atomic::Ordering::Relaxed);
                 }
+            }
         });
     }
 
