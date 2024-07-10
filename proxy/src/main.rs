@@ -90,6 +90,7 @@ pub fn main() -> anyhow::Result<()> {
                         write_version: account_message.write_version,
                     },
                     account_message.slot_identifier.slot,
+                    false,
                 )
             }
             quic_geyser_common::message::Message::SlotMsg(slot_message) => ChannelMessage::Slot(

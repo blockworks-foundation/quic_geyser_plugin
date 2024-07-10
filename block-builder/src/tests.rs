@@ -54,6 +54,7 @@ fn test_block_creation_transactions_after_blockmeta() {
             write_version: 1,
         },
         5,
+        false,
     );
     let acc2 = ChannelMessage::Account(
         AccountData {
@@ -68,6 +69,7 @@ fn test_block_creation_transactions_after_blockmeta() {
             write_version: 1,
         },
         5,
+        false,
     );
 
     let acc3 = ChannelMessage::Account(
@@ -83,6 +85,7 @@ fn test_block_creation_transactions_after_blockmeta() {
             write_version: 2,
         },
         5,
+        false,
     );
 
     let acc4 = ChannelMessage::Account(
@@ -98,6 +101,7 @@ fn test_block_creation_transactions_after_blockmeta() {
             write_version: 0,
         },
         5,
+        false,
     );
     channelmsg_sx.send(acc1.clone()).unwrap();
     channelmsg_sx.send(acc2.clone()).unwrap();
@@ -241,7 +245,7 @@ fn test_block_creation_transactions_after_blockmeta() {
     let accounts_sent: HashMap<_, _> = [acc2, acc3]
         .iter()
         .map(|acc| {
-            let ChannelMessage::Account(acc, _) = acc else {
+            let ChannelMessage::Account(acc, ..) = acc else {
                 unreachable!();
             };
             (acc.pubkey, acc.account.data.clone())
@@ -278,6 +282,7 @@ fn test_block_creation_blockmeta_after_transactions() {
             write_version: 1,
         },
         5,
+        false,
     );
     let acc2 = ChannelMessage::Account(
         AccountData {
@@ -292,6 +297,7 @@ fn test_block_creation_blockmeta_after_transactions() {
             write_version: 1,
         },
         5,
+        false,
     );
 
     let acc3 = ChannelMessage::Account(
@@ -307,6 +313,7 @@ fn test_block_creation_blockmeta_after_transactions() {
             write_version: 2,
         },
         5,
+        false,
     );
 
     let acc4 = ChannelMessage::Account(
@@ -322,6 +329,7 @@ fn test_block_creation_blockmeta_after_transactions() {
             write_version: 0,
         },
         5,
+        false,
     );
     channelmsg_sx.send(acc1.clone()).unwrap();
     channelmsg_sx.send(acc2.clone()).unwrap();
@@ -466,7 +474,7 @@ fn test_block_creation_blockmeta_after_transactions() {
     let accounts_sent: HashMap<_, _> = [acc2, acc3]
         .iter()
         .map(|acc| {
-            let ChannelMessage::Account(acc, _) = acc else {
+            let ChannelMessage::Account(acc, ..) = acc else {
                 unreachable!();
             };
             (acc.pubkey, acc.account.data.clone())
@@ -503,6 +511,7 @@ fn test_block_creation_incomplete_block_after_slot_notification() {
             write_version: 1,
         },
         5,
+        false,
     );
     let acc2 = ChannelMessage::Account(
         AccountData {
@@ -517,6 +526,7 @@ fn test_block_creation_incomplete_block_after_slot_notification() {
             write_version: 1,
         },
         5,
+        false,
     );
 
     let acc3 = ChannelMessage::Account(
@@ -532,6 +542,7 @@ fn test_block_creation_incomplete_block_after_slot_notification() {
             write_version: 2,
         },
         5,
+        false,
     );
 
     let acc4 = ChannelMessage::Account(
@@ -547,6 +558,7 @@ fn test_block_creation_incomplete_block_after_slot_notification() {
             write_version: 0,
         },
         5,
+        false,
     );
     channelmsg_sx.send(acc1.clone()).unwrap();
     channelmsg_sx.send(acc2.clone()).unwrap();
@@ -690,7 +702,7 @@ fn test_block_creation_incomplete_block_after_slot_notification() {
     let accounts_sent: HashMap<_, _> = [acc2, acc3]
         .iter()
         .map(|acc| {
-            let ChannelMessage::Account(acc, _) = acc else {
+            let ChannelMessage::Account(acc, ..) = acc else {
                 unreachable!();
             };
             (acc.pubkey, acc.account.data.clone())
@@ -727,6 +739,7 @@ fn test_block_creation_incomplete_slot() {
             write_version: 1,
         },
         5,
+        false,
     );
     let acc2 = ChannelMessage::Account(
         AccountData {
@@ -741,6 +754,7 @@ fn test_block_creation_incomplete_slot() {
             write_version: 1,
         },
         5,
+        false,
     );
 
     let acc3 = ChannelMessage::Account(
@@ -756,6 +770,7 @@ fn test_block_creation_incomplete_slot() {
             write_version: 2,
         },
         5,
+        false,
     );
 
     let acc4 = ChannelMessage::Account(
@@ -771,6 +786,7 @@ fn test_block_creation_incomplete_slot() {
             write_version: 0,
         },
         5,
+        false,
     );
     channelmsg_sx.send(acc1.clone()).unwrap();
     channelmsg_sx.send(acc2.clone()).unwrap();
@@ -925,7 +941,7 @@ fn test_block_creation_incomplete_slot() {
     let accounts_sent: HashMap<_, _> = [acc2, acc3]
         .iter()
         .map(|acc| {
-            let ChannelMessage::Account(acc, _) = acc else {
+            let ChannelMessage::Account(acc, ..) = acc else {
                 unreachable!();
             };
             (acc.pubkey, acc.account.data.clone())

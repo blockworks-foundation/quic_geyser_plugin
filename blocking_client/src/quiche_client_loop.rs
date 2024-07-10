@@ -333,6 +333,7 @@ mod tests {
                 write_version: 1,
             },
             5,
+            false,
         );
 
         let message_3 = ChannelMessage::Account(
@@ -348,6 +349,7 @@ mod tests {
                 write_version: 1,
             },
             5,
+            false,
         );
 
         let message_4 = ChannelMessage::Account(
@@ -363,6 +365,7 @@ mod tests {
                 write_version: 1,
             },
             5,
+            false,
         );
 
         let message_5 = ChannelMessage::Account(
@@ -378,6 +381,7 @@ mod tests {
                 write_version: 1,
             },
             5,
+            false,
         );
 
         // server loop
@@ -443,7 +447,7 @@ mod tests {
 
         let message_rx_2 = client_rx_queue.recv().unwrap();
 
-        let ChannelMessage::Account(account, slot) = &message_2 else {
+        let ChannelMessage::Account(account, slot, _) = &message_2 else {
             panic!("message should be account");
         };
         let Message::AccountMsg(message_rx_2) = message_rx_2 else {
@@ -456,7 +460,7 @@ mod tests {
 
         let message_rx_3 = client_rx_queue.recv().unwrap();
 
-        let ChannelMessage::Account(account, slot) = &message_3 else {
+        let ChannelMessage::Account(account, slot, _) = &message_3 else {
             panic!("message should be account");
         };
         let Message::AccountMsg(message_rx_3) = message_rx_3 else {
@@ -468,7 +472,7 @@ mod tests {
         assert_eq!(message_rx_3.slot_identifier.slot, *slot);
 
         let message_rx_4 = client_rx_queue.recv().unwrap();
-        let ChannelMessage::Account(account, slot) = &message_4 else {
+        let ChannelMessage::Account(account, slot, _) = &message_4 else {
             panic!("message should be account");
         };
         let Message::AccountMsg(message_rx_4) = message_rx_4 else {
@@ -480,7 +484,7 @@ mod tests {
         assert_eq!(message_rx_4.slot_identifier.slot, *slot);
 
         let message_rx_5 = client_rx_queue.recv().unwrap();
-        let ChannelMessage::Account(account, slot) = &message_5 else {
+        let ChannelMessage::Account(account, slot, _) = &message_5 else {
             panic!("message should be account");
         };
         let Message::AccountMsg(message_rx_5) = message_rx_5 else {

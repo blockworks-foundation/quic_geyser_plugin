@@ -11,6 +11,7 @@ members = [
     "examples/tester-server",
     "proxy",
     "block-builder",
+    "snapshot",
 ]
 
 [workspace.package]
@@ -65,6 +66,12 @@ quic-geyser-server = {path = "server", version="0.1.5"}
 quic-geyser-quiche-utils = {path = "quiche", version = "0.1.5"}
 quic-geyser-blocking-client = {path = "blocking_client", version = "0.1.5"}
 quic-geyser-block-builder = {path = "block-builder", version = "0.1.5"}
+quic-geyser-snapshot = {path = "snapshot", version = "0.1.5"}
+
+# solana lite account manager for snapshot creation
+lite-account-manager-common = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", branch = "main" }
+lite-account-storage = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", branch = "main" }
+lite-token-account-storage = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", branch = "main" }
 
 [profile.release]
 debug = true

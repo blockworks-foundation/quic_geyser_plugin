@@ -609,7 +609,11 @@ fn create_dispatching_thread(
 
             if !dispatching_connections.is_empty() {
                 let (message, priority) = match message {
-                    ChannelMessage::Account(account, slot) => {
+                    ChannelMessage::Account(account, slot, init) => {
+                        if init {
+                            // do not sent init messages
+                            continue;
+                        }
                         let slot_identifier = SlotIdentifier { slot };
                         let geyser_account = Account::new(
                             account.pubkey,

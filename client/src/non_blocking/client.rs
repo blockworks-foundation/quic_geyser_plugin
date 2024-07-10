@@ -1,3 +1,4 @@
+use anyhow::bail;
 use quic_geyser_common::defaults::ALPN_GEYSER_PROTOCOL_ID;
 use quic_geyser_common::defaults::DEFAULT_MAX_RECIEVE_WINDOW_SIZE;
 use quic_geyser_common::defaults::MAX_DATAGRAM_SIZE;
@@ -97,7 +98,11 @@ impl Client {
     pub async fn new(
         server_address: String,
         connection_parameters: ConnectionParameters,
-    ) -> anyhow::Result<(Client, tokio::sync::mpsc::UnboundedReceiver<Message>)> {
+    ) -> anyhow::Result<(
+        Client,
+        tokio::sync::mpsc::UnboundedReceiver<Message>,
+        Vec<tokio::task::JoinHandle<anyhow::Result<()>>>,
+    )> {
         let timeout: u64 = connection_parameters.timeout_in_seconds;
         let endpoint = create_client_endpoint(connection_parameters);
         let socket_addr = SocketAddr::from_str(&server_address)?;
@@ -107,7 +112,7 @@ impl Client {
             tokio::sync::mpsc::unbounded_channel::<Message>();
 
         let connection = connecting.await?;
-        {
+        let jh1 = {
             let connection = connection.clone();
             tokio::spawn(async move {
                 // limit client to respond to 128k streams in parallel
@@ -145,11 +150,12 @@ impl Client {
                         },
                     }
                 }
-            });
-        }
+                bail!("quic client stopped, connection lost")
+            })
+        };
 
         // create a ping thread
-        {
+        let jh2 = {
             let connection = connection.clone();
             tokio::spawn(async move {
                 let ping_message = bincode::serialize(&Message::Ping)
@@ -165,10 +171,11 @@ impl Client {
                         break;
                     }
                 }
-            });
-        }
+                bail!("quic client stopped, ping message thread dropped")
+            })
+        };
 
-        Ok((Client { connection }, message_rx_queue))
+        Ok((Client { connection }, message_rx_queue, vec![jh1, jh2]))
     }
 
     pub async fn subscribe(&self, filters: Vec<Filter>) -> anyhow::Result<()> {
@@ -279,6 +286,7 @@ mod tests {
                                     write_version: account.write_version,
                                 },
                                 account.slot_identifier.slot,
+                                false,
                             ),
                         )
                         .unwrap();
@@ -290,7 +298,7 @@ mod tests {
         sleep(Duration::from_millis(100));
 
         // server started
-        let (client, mut reciever) = Client::new(
+        let (client, mut reciever, _tasks) = Client::new(
             url,
             ConnectionParameters {
                 max_number_of_streams: 10,

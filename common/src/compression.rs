@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 #[repr(C)]
 pub enum CompressionType {
     None,
-    Lz4Fast(u32),
-    Lz4(u32),
+    Lz4Fast(i32),
+    Lz4(i32),
 }
 
 impl Default for CompressionType {
@@ -22,17 +22,13 @@ impl CompressionType {
 
         match self {
             CompressionType::None => data.to_vec(),
-            CompressionType::Lz4Fast(speed) => lz4::block::compress(
-                data,
-                Some(lz4::block::CompressionMode::FAST(*speed as i32)),
-                true,
-            )
-            .expect("Compression should work"),
+            CompressionType::Lz4Fast(speed) => {
+                lz4::block::compress(data, Some(lz4::block::CompressionMode::FAST(*speed)), true)
+                    .expect("Compression should work")
+            }
             CompressionType::Lz4(compression) => lz4::block::compress(
                 data,
-                Some(lz4::block::CompressionMode::HIGHCOMPRESSION(
-                    *compression as i32,
-                )),
+                Some(lz4::block::CompressionMode::HIGHCOMPRESSION(*compression)),
                 true,
             )
             .expect("compression should work"),

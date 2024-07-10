@@ -225,7 +225,7 @@ fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>
 
 async fn non_blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>) {
     println!("Connecting");
-    let (client, mut reciever) = Client::new(
+    let (client, mut reciever, _tasks) = Client::new(
         args.url,
         ConnectionParameters {
             max_number_of_streams: args.number_of_streams,

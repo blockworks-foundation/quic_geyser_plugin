@@ -13,7 +13,7 @@ pub struct AccountData {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChannelMessage {
-    Account(AccountData, Slot),
+    Account(AccountData, Slot, bool),
     Slot(u64, u64, CommitmentConfig),
     BlockMeta(BlockMeta),
     Transaction(Box<Transaction>),

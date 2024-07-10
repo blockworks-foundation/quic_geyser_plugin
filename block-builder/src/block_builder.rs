@@ -46,7 +46,11 @@ pub fn build_blocks(
     let mut partially_build_blocks = BTreeMap::<u64, PartialBlock>::new();
     while let Ok(channel_message) = channel_messages.recv() {
         match channel_message {
-            ChannelMessage::Account(account_data, slot) => {
+            ChannelMessage::Account(account_data, slot, init) => {
+                if init {
+                    continue;
+                }
+
                 if build_blocks_with_accounts {
                     if let Some(lowest) = partially_build_blocks.first_entry() {
                         if *lowest.key() > slot {

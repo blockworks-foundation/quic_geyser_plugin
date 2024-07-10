@@ -25,7 +25,8 @@ impl Filter {
         match &self {
             Filter::Account(account) => account.allows(message),
             Filter::AccountsAll => match message {
-                ChannelMessage::Account(account, _) => {
+                ChannelMessage::Account(account, _, init) => {
+                    !init &&
                     account.account.owner != solana_program::vote::program::ID // does not belong to vote program
                         && account.account.owner != solana_program::stake::program::ID
                     // does not belong to stake program
@@ -46,7 +47,7 @@ impl Filter {
             Filter::TransactionsAll => matches!(message, ChannelMessage::Transaction(_)),
             Filter::BlockAll => matches!(message, ChannelMessage::Block(_)),
             Filter::DeletedAccounts => match message {
-                ChannelMessage::Account(account, _) => account.account.lamports == 0,
+                ChannelMessage::Account(account, _, _) => account.account.lamports == 0,
                 _ => false,
             },
             Filter::AccountsExcluding(account) => !account.allows(message),
@@ -85,7 +86,10 @@ pub struct AccountFilter {
 
 impl AccountFilter {
     pub fn allows(&self, message: &ChannelMessage) -> bool {
-        if let ChannelMessage::Account(account, _) = message {
+        if let ChannelMessage::Account(account, _, init) = message {
+            if *init {
+                return false;
+            }
             if let Some(owner) = self.owner {
                 if owner == account.account.owner {
                     // to do move the filtering somewhere else because here we need to decode the account data
@@ -159,6 +163,16 @@ mod tests {
             rent_epoch: 100,
         };
 
+        let msg_0 = ChannelMessage::Account(
+            AccountData {
+                pubkey: Pubkey::new_unique(),
+                account: solana_account_1.clone(),
+                write_version: 0,
+            },
+            0,
+            true,
+        );
+
         let msg_1 = ChannelMessage::Account(
             AccountData {
                 pubkey: Pubkey::new_unique(),
@@ -166,6 +180,7 @@ mod tests {
                 write_version: 0,
             },
             0,
+            false,
         );
 
         let msg_2 = ChannelMessage::Account(
@@ -175,6 +190,7 @@ mod tests {
                 write_version: 0,
             },
             0,
+            false,
         );
 
         let msg_3 = ChannelMessage::Account(
@@ -184,6 +200,7 @@ mod tests {
                 write_version: 0,
             },
             0,
+            false,
         );
 
         let f1 = AccountFilter {
@@ -192,6 +209,7 @@ mod tests {
             filter: None,
         };
 
+        assert_eq!(f1.allows(&msg_0), false);
         assert_eq!(f1.allows(&msg_1), true);
         assert_eq!(f1.allows(&msg_2), true);
         assert_eq!(f1.allows(&msg_3), false);
@@ -201,6 +219,7 @@ mod tests {
             accounts: None,
             filter: Some(AccountFilterType::Datasize(9)),
         };
+        assert_eq!(f2.allows(&msg_0), false);
         assert_eq!(f2.allows(&msg_1), false);
         assert_eq!(f2.allows(&msg_2), false);
         assert_eq!(f2.allows(&msg_3), false);
@@ -210,6 +229,7 @@ mod tests {
             accounts: None,
             filter: Some(AccountFilterType::Datasize(10)),
         };
+        assert_eq!(f3.allows(&msg_0), false);
         assert_eq!(f3.allows(&msg_1), true);
         assert_eq!(f3.allows(&msg_2), true);
         assert_eq!(f3.allows(&msg_3), false);
@@ -222,6 +242,7 @@ mod tests {
                 data: crate::filters::MemcmpFilterData::Bytes(vec![3, 4, 5]),
             })),
         };
+        assert_eq!(f4.allows(&msg_0), false);
         assert_eq!(f4.allows(&msg_1), true);
         assert_eq!(f4.allows(&msg_2), false);
         assert_eq!(f4.allows(&msg_3), false);
@@ -234,6 +255,7 @@ mod tests {
                 data: crate::filters::MemcmpFilterData::Bytes(vec![13, 14, 15]),
             })),
         };
+        assert_eq!(f5.allows(&msg_0), false);
         assert_eq!(f5.allows(&msg_1), false);
         assert_eq!(f5.allows(&msg_2), true);
         assert_eq!(f5.allows(&msg_3), false);

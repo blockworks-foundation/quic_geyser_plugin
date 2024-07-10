@@ -14,7 +14,7 @@ pub struct Args {
     pub port: u64,
 
     #[clap(short, long, default_value_t = 8)]
-    pub compression_speed: u32,
+    pub compression_speed: i32,
 
     #[clap(short, long, default_value_t = 50)]
     pub max_number_of_connections: u64,

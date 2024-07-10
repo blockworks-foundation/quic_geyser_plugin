@@ -69,7 +69,7 @@ pub fn main() {
                 },
                 write_version,
             };
-            let channel_message = ChannelMessage::Account(account, slot);
+            let channel_message = ChannelMessage::Account(account, slot, false);
             quic_server.send_message(channel_message).unwrap();
         }
     }

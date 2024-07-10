@@ -97,6 +97,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
                 write_version: account_info.write_version,
             },
             slot,
+            is_startup,
         );
 
         if let Some(block_channel) = &self.block_builder_channel {

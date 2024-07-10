@@ -35,15 +35,13 @@ impl Account {
                 CompressionType::None => solana_account.data,
                 CompressionType::Lz4Fast(speed) => lz4::block::compress(
                     &solana_account.data,
-                    Some(lz4::block::CompressionMode::FAST(speed as i32)),
+                    Some(lz4::block::CompressionMode::FAST(speed)),
                     true,
                 )
                 .expect("Compression should work"),
                 CompressionType::Lz4(compression) => lz4::block::compress(
                     &solana_account.data,
-                    Some(lz4::block::CompressionMode::HIGHCOMPRESSION(
-                        compression as i32,
-                    )),
+                    Some(lz4::block::CompressionMode::HIGHCOMPRESSION(compression)),
                     true,
                 )
                 .expect("compression should work"),
