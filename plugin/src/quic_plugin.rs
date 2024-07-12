@@ -60,6 +60,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
         }
 
         if config.rpc_server.enable {
+            log::info!("Creating runtime");
             let runtime =
                 Runtime::new().map_err(|error| GeyserPluginError::Custom(Box::new(error)))?;
             let port = config.rpc_server.port;
@@ -69,8 +70,10 @@ impl GeyserPlugin for QuicGeyserPlugin {
 
             runtime.block_on(async move {
                 let snapshot_creator = SnapshotCreator::new(snapshot_config, compression_params);
+                log::info!("geyser plugin Start listening");
                 snapshot_creator.start_listening(server_rx);
 
+                log::info!("start serving");
                 let rpc_server = RpcServerImpl::new(snapshot_creator);
                 if let Err(e) = RpcServerImpl::start_serving(rpc_server, port).await {
                     log::error!("Error starting http server: {e:?}");
@@ -79,7 +82,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
             self.runtime = Some(runtime);
         }
         self.quic_server = Some(quic_server);
-
+        log::info!("geyser plugin loaded ok ()");
         Ok(())
     }
 

@@ -64,7 +64,6 @@ impl RpcServerImpl {
             log::info!("HTTP Server started at {http_addr:?}");
             http_server_handle.stopped().await;
             log::error!("QUIC GEYSER PLUGIN HTTP SERVER STOPPED");
-            panic!("QUIC GEYSER PLUGIN HTTP SERVER STOPPED")
         });
         Ok(())
     }

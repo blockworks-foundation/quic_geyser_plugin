@@ -350,33 +350,33 @@ fn create_client_task(
             std::thread::spawn(move || {
                 while !quit.load(std::sync::atomic::Ordering::Relaxed) {
                     std::thread::sleep(Duration::from_secs(1));
-                    log::info!("---------------------------------");
-                    log::info!(
+                    log::debug!("---------------------------------");
+                    log::debug!(
                         "number of loop : {}",
                         number_of_loops.swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
-                    log::info!(
+                    log::debug!(
                         "number of packets read : {}",
                         number_of_meesages_from_network
                             .swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
-                    log::info!(
+                    log::debug!(
                         "number of packets write : {}",
                         number_of_meesages_to_network.swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
-                    log::info!(
+                    log::debug!(
                         "number_of_readable_streams : {}",
                         number_of_readable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
-                    log::info!(
+                    log::debug!(
                         "number_of_writable_streams : {}",
                         number_of_writable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
-                    log::info!(
+                    log::debug!(
                         "messages_added : {}",
                         messages_added.swap(0, std::sync::atomic::Ordering::Relaxed)
                     );
-                    log::info!(
+                    log::debug!(
                         "messages in queue to be sent : {}",
                         messages_in_queue.load(std::sync::atomic::Ordering::Relaxed)
                     );

@@ -1,17 +1,11 @@
 {
-  "libpath": "target/debug/libquic_geyser_plugin.so",
+  "libpath": "target/release/libquic_geyser_plugin.so",
   "quic_plugin": {
     "address": "0.0.0.0:10800",
     "compression_parameters": {
         "compression_type": {
             "Lz4Fast": 8
         }
-    },
-      "number_of_retries": 100,
-      "quic_parameters": {
-          "connection_timeout": 30,
-          "max_number_of_streams_per_client": 16384,
-          "recieve_window_size": 1000000
       }
   }
 }
