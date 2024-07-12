@@ -27,6 +27,8 @@ solana-program = "~1.18.15"
 solana-transaction-status = "~1.18.15"
 solana-logger = "~1.18.15"
 solana-rpc-client = "~1.18.15"
+solana-rpc-client-api = "~1.18.15"
+solana-account-decoder = "~1.18.15"
 
 itertools = "0.10.5"
 serde = "1.0.201"

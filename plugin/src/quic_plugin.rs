@@ -13,17 +13,21 @@ use quic_geyser_common::{
     },
 };
 use quic_geyser_server::quic_server::QuicServer;
+use quic_geyser_snapshot::snapshot_creator::SnapshotCreator;
 use solana_sdk::{
     account::Account, clock::Slot, commitment_config::CommitmentConfig, message::v0::Message,
     pubkey::Pubkey,
 };
+use tokio::runtime::Runtime;
 
-use crate::config::Config;
+use crate::{config::Config, rpc_server::RpcServerImpl};
 
 #[derive(Debug, Default)]
 pub struct QuicGeyserPlugin {
+    runtime: Option<Runtime>,
     quic_server: Option<QuicServer>,
     block_builder_channel: Option<std::sync::mpsc::Sender<ChannelMessage>>,
+    rpc_server_message_channel: Option<tokio::sync::mpsc::UnboundedSender<ChannelMessage>>,
 }
 
 impl GeyserPlugin for QuicGeyserPlugin {
@@ -34,9 +38,11 @@ impl GeyserPlugin for QuicGeyserPlugin {
     fn on_load(&mut self, config_file: &str, _is_reload: bool) -> PluginResult<()> {
         log::info!("loading quic_geyser plugin");
         let config = Config::load_from_file(config_file)?;
+        let compression_params = config.quic_plugin.compression_parameters.clone();
         let compression_type = config.quic_plugin.compression_parameters.compression_type;
         let enable_block_builder = config.quic_plugin.enable_block_builder;
         let build_blocks_with_accounts = config.quic_plugin.build_blocks_with_accounts;
+        let snapshot_config = config.rpc_server.snapshot_config;
         log::info!("Quic plugin config correctly loaded");
         solana_logger::setup_with_default(&config.quic_plugin.log_level);
         let quic_server = QuicServer::new(config.quic_plugin).map_err(|_| {
@@ -51,6 +57,26 @@ impl GeyserPlugin for QuicGeyserPlugin {
                 build_blocks_with_accounts,
             );
             self.block_builder_channel = Some(sx);
+        }
+
+        if config.rpc_server.enable {
+            let runtime =
+                Runtime::new().map_err(|error| GeyserPluginError::Custom(Box::new(error)))?;
+            let port = config.rpc_server.port;
+
+            let (server_sx, server_rx) = tokio::sync::mpsc::unbounded_channel();
+            self.rpc_server_message_channel = Some(server_sx);
+
+            runtime.block_on(async move {
+                let snapshot_creator = SnapshotCreator::new(snapshot_config, compression_params);
+                snapshot_creator.start_listening(server_rx);
+
+                let rpc_server = RpcServerImpl::new(snapshot_creator);
+                if let Err(e) = RpcServerImpl::start_serving(rpc_server, port).await {
+                    log::error!("Error starting http server: {e:?}");
+                }
+            });
+            self.runtime = Some(runtime);
         }
         self.quic_server = Some(quic_server);
 
@@ -104,6 +130,10 @@ impl GeyserPlugin for QuicGeyserPlugin {
             let _ = block_channel.send(channel_message.clone());
         }
 
+        if let Some(rpc_server_message_channel) = &self.rpc_server_message_channel {
+            let _ = rpc_server_message_channel.send(channel_message.clone());
+        }
+
         quic_server
             .send_message(channel_message)
             .map_err(|e| GeyserPluginError::Custom(Box::new(e)))?;
@@ -133,6 +163,10 @@ impl GeyserPlugin for QuicGeyserPlugin {
 
         if let Some(block_channel) = &self.block_builder_channel {
             let _ = block_channel.send(slot_message.clone());
+        }
+
+        if let Some(rpc_server_message_channel) = &self.rpc_server_message_channel {
+            let _ = rpc_server_message_channel.send(slot_message.clone());
         }
 
         quic_server
@@ -243,6 +277,10 @@ impl GeyserPlugin for QuicGeyserPlugin {
 
         if let Some(block_channel) = &self.block_builder_channel {
             let _ = block_channel.send(block_meta_message.clone());
+        }
+
+        if let Some(rpc_server_message_channel) = &self.rpc_server_message_channel {
+            let _ = rpc_server_message_channel.send(block_meta_message.clone());
         }
 
         quic_server

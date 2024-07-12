@@ -20,13 +20,25 @@ serde = { workspace = true }
 solana-sdk = { workspace = true }
 solana-logger = { workspace = true }
 serde_json = { workspace = true }
+solana-rpc-client-api = { workspace = true }
+solana-account-decoder = { workspace = true }
+
 anyhow = { workspace = true }
 log = { workspace = true }
 thiserror = {workspace = true}
 
+jsonrpsee = { version = "0.20.0", features = ["macros", "full"] }
+tower = "0.4.13"
+tower-http = { version = "0.4.0", features = ["full"] }
+
 quic-geyser-common = { workspace = true }
 quic-geyser-server = { workspace = true }
 quic-geyser-block-builder = { workspace = true }
+quic-geyser-snapshot = { workspace = true }
+
+lite-account-manager-common = { workspace = true }
+itertools = { workspace = true }
+tokio = {workspace = true}
 
 [build-dependencies]
 anyhow = { workspace = true }
