@@ -43,8 +43,9 @@ impl GeyserPlugin for QuicGeyserPlugin {
         let enable_block_builder = config.quic_plugin.enable_block_builder;
         let build_blocks_with_accounts = config.quic_plugin.build_blocks_with_accounts;
         let snapshot_config = config.rpc_server.snapshot_config;
-        log::info!("Quic plugin config correctly loaded");
         solana_logger::setup_with_default(&config.quic_plugin.log_level);
+
+        log::info!("Quic plugin config correctly loaded");
         let quic_server = QuicServer::new(config.quic_plugin).map_err(|_| {
             GeyserPluginError::Custom(Box::new(QuicGeyserError::ErrorConfiguringServer))
         })?;
@@ -61,8 +62,10 @@ impl GeyserPlugin for QuicGeyserPlugin {
 
         if config.rpc_server.enable {
             log::info!("Creating runtime");
-            let runtime =
-                Runtime::new().map_err(|error| GeyserPluginError::Custom(Box::new(error)))?;
+            let runtime = Runtime::new().map_err(|error| {
+                log::error!("Error creating runtime : {error:?}");
+                GeyserPluginError::Custom(Box::new(error))
+            })?;
             let port = config.rpc_server.port;
 
             let (server_sx, server_rx) = tokio::sync::mpsc::unbounded_channel();
