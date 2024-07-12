@@ -303,6 +303,10 @@ impl GeyserPlugin for QuicGeyserPlugin {
     fn entry_notifications_enabled(&self) -> bool {
         false
     }
+
+    fn skip_statup_notifications(&self) -> bool {
+        false
+    }
 }
 
 #[no_mangle]
