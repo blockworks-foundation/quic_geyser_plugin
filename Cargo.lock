@@ -2968,6 +2968,7 @@ version = "0.1.5"
 dependencies = [
  "agave-geyser-plugin-interface",
  "anyhow",
+ "base64 0.21.7",
  "cargo-lock",
  "clap",
  "git-version",

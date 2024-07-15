@@ -1,6 +1,7 @@
 use std::str::FromStr;
 use std::time::Duration;
 
+use base64::Engine;
 use itertools::Itertools;
 use jsonrpsee::server::ServerBuilder;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
@@ -26,7 +27,7 @@ pub trait PluginRpc {
     ) -> RpcResult<OptionalContext<Vec<RpcKeyedAccount>>>;
 
     #[method(name = "getSnapshot")]
-    async fn get_snapshot(&self, program_id_str: String) -> RpcResult<Vec<u8>>;
+    async fn get_snapshot(&self, program_id_str: String) -> RpcResult<String>;
 }
 
 pub struct RpcServerImpl {
@@ -53,8 +54,8 @@ impl RpcServerImpl {
         let http_server_handle = ServerBuilder::default()
             .set_middleware(middleware)
             .max_connections(10)
-            .max_request_body_size(16 * 1024 * 1024) // 16 MB
-            .max_response_body_size(64 * 1024 * 1024 * 1024) // 64 GB
+            .max_request_body_size(1024 * 1024) // 16 MB
+            .max_response_body_size(1024 * 1024) // 512 MBs
             .http_only()
             .build(http_addr.clone())
             .await?
@@ -155,7 +156,7 @@ impl PluginRpcServer for RpcServerImpl {
         }
     }
 
-    async fn get_snapshot(&self, program_id_str: String) -> RpcResult<Vec<u8>> {
+    async fn get_snapshot(&self, program_id_str: String) -> RpcResult<String> {
         let program_id = Pubkey::from_str(program_id_str.as_str())
             .map_err(|_| jsonrpsee::types::error::ErrorCode::InvalidParams)?;
         let res = self
@@ -163,7 +164,7 @@ impl PluginRpcServer for RpcServerImpl {
             .create_snapshot(program_id)
             .await
             .map_err(|_| jsonrpsee::types::error::ErrorCode::InternalError)?;
-        Ok(res)
+        Ok(base64::engine::general_purpose::STANDARD.encode(res))
     }
 }
 

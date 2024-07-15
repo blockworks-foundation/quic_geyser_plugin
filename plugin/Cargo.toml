@@ -39,6 +39,7 @@ quic-geyser-snapshot = { workspace = true }
 lite-account-manager-common = { workspace = true }
 itertools = { workspace = true }
 tokio = {workspace = true}
+base64 = {workspace = true}
 
 [build-dependencies]
 anyhow = { workspace = true }
