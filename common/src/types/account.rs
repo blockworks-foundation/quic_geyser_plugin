@@ -24,7 +24,7 @@ impl Account {
     pub fn new(
         pubkey: Pubkey,
         solana_account: SolanaAccount,
-        compression_type: CompressionType,
+        mut compression_type: CompressionType,
         slot_identifier: SlotIdentifier,
         write_version: u64,
     ) -> Self {
@@ -47,6 +47,7 @@ impl Account {
                 .expect("compression should work"),
             }
         } else {
+            compression_type = CompressionType::None;
             vec![]
         };
         Account {

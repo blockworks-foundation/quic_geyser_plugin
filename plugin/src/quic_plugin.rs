@@ -27,7 +27,7 @@ pub struct QuicGeyserPlugin {
     runtime: Option<Runtime>,
     quic_server: Option<QuicServer>,
     block_builder_channel: Option<std::sync::mpsc::Sender<ChannelMessage>>,
-    rpc_server_message_channel: Option<tokio::sync::mpsc::UnboundedSender<ChannelMessage>>,
+    rpc_server_message_channel: Option<std::sync::mpsc::Sender<ChannelMessage>>,
 }
 
 impl GeyserPlugin for QuicGeyserPlugin {
@@ -68,7 +68,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
             })?;
             let port = config.rpc_server.port;
 
-            let (server_sx, server_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (server_sx, server_rx) = std::sync::mpsc::channel();
             self.rpc_server_message_channel = Some(server_sx);
 
             runtime.block_on(async move {

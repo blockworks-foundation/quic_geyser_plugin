@@ -64,13 +64,13 @@ impl SnapshotCreator {
 
     pub fn start_listening(
         &self,
-        mut recieve_channel: tokio::sync::mpsc::UnboundedReceiver<ChannelMessage>,
+        recieve_channel: std::sync::mpsc::Receiver<ChannelMessage>,
     ) {
         let storage = self.storage.clone();
         let filters = self.filters.clone();
         let compression = self.compression_mode.clone();
-        tokio::spawn(async move {
-            while let Some(message) = recieve_channel.recv().await {
+        std::thread::spawn(move || {
+            while let Ok(message) = recieve_channel.recv() {
                 match message {
                     ChannelMessage::Account(account, slot, is_init) => {
                         let tmp_acc = AccountManagerAccountData {
@@ -88,7 +88,7 @@ impl SnapshotCreator {
                             write_version: 0,
                         };
                         // check first if filter is satified
-                        if !filters.satisfies(&tmp_acc).await {
+                        if !filters.satisfies(&tmp_acc) {
                             continue;
                         }
 
@@ -128,14 +128,13 @@ impl SnapshotCreator {
                             write_version: 0,
                         };
                         if is_init {
-                            storage.initilize_or_update_account(account_to_save).await
+                            storage.initilize_or_update_account(account_to_save)
                         } else {
                             storage
                                 .update_account(
                                     account_to_save,
                                     lite_account_manager_common::commitment::Commitment::Processed,
-                                )
-                                .await;
+                                );
                         }
                     }
                     ChannelMessage::Slot(slot, parent, commitment) => {
@@ -147,8 +146,7 @@ impl SnapshotCreator {
                                     root: 0,
                                 },
                                 commitment.into(),
-                            )
-                            .await;
+                            );
                     }
                     _ => {
                         // other message are not treated
@@ -164,7 +162,7 @@ impl SnapshotCreator {
         &self,
         program_id: Pubkey,
     ) -> Result<Vec<u8>, AccountLoadingError> {
-        self.storage.create_snapshot(program_id).await
+        self.storage.create_snapshot(program_id)
     }
 
     pub async fn get_program_accounts(
@@ -175,6 +173,5 @@ impl SnapshotCreator {
     ) -> Result<Vec<AccountManagerAccountData>, AccountLoadingError> {
         self.storage
             .get_program_accounts(program_pubkey, account_filters, commitment)
-            .await
     }
 }
