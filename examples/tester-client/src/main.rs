@@ -56,8 +56,7 @@ async fn non_blocking(args: Args) {
         log::info!("Connected");
 
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let mut filters = vec![Filter::Slot, Filter::BlockMeta];
-        filters.push(Filter::AccountsAll);
+        let filters = vec![Filter::Slot, Filter::BlockMeta, Filter::TransactionsAll, Filter::AccountsAll];
 
         log::info!("Subscribing");
         client.subscribe(filters).await.unwrap();
@@ -72,6 +71,15 @@ async fn non_blocking(args: Args) {
                 quic_geyser_common::message::Message::AccountMsg(account) => {
                     log::trace!("got account notification : {} ", account.pubkey);
                     let slot = account.slot_identifier.slot;
+                    if slot > last_slot {
+                        let system_time = std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+                        btree_map.insert(slot, system_time.as_micros());
+                        //println!("new slot {} notification at {}", slot, system_time.as_micros());
+                        last_slot = slot;
+                    }
+                }
+                quic_geyser_common::message::Message::TransactionMsg(transaction) => {
+                    let slot = transaction.slot_identifier.slot;
                     if slot > last_slot {
                         let system_time = std::time::SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                         btree_map.insert(slot, system_time.as_micros());
@@ -103,8 +111,13 @@ async fn non_blocking(args: Args) {
                             continue;
                         }
                         let last_first_shread_time = btree_map.get(&last_block_meta.slot).copied().unwrap();
-                        let first_shread_time = btree_map.get(&slot).copied().unwrap();
-                        let drift = (first_shread_time - last_first_shread_time) as i64 - 400 * 1000;
+                        let first_shread_time = match btree_map.get(&slot).copied(){
+                            Some(v) => v,
+                            None => {
+                                continue;
+                            },
+                        };
+                        let drift = (first_shread_time - last_first_shread_time) as i64 - 400 * 1000 * (block_meta.slot - last_block_meta.slot) as i64;
                         println!("block_meta : slot {}, current_block_time: {}, last_block_slot: {}, last_block_time:{}, observed drift : {}", block_meta.slot, first_shread_time, last_block_meta.slot, last_first_shread_time, drift);
                         while let Some((k, _)) = btree_map.first_key_value() {
                             if *k < last_block_meta.slot {
