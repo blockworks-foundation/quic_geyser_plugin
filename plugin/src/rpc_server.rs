@@ -104,7 +104,6 @@ impl PluginRpcServer for RpcServerImpl {
         let gpa = self
             .snapshot_creator
             .get_program_accounts(program_id, account_filters, commitment)
-            .await
             .map_err(|_| jsonrpsee::types::error::ErrorCode::InternalError)?;
 
         let min_context_slot = config
@@ -162,7 +161,6 @@ impl PluginRpcServer for RpcServerImpl {
         let res = self
             .snapshot_creator
             .create_snapshot(program_id)
-            .await
             .map_err(|_| jsonrpsee::types::error::ErrorCode::InternalError)?;
         Ok(base64::engine::general_purpose::STANDARD.encode(res))
     }

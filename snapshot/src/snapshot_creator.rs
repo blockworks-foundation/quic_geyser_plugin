@@ -88,7 +88,7 @@ impl SnapshotCreator {
                             write_version: 0,
                         };
                         // check first if filter is satified
-                        if !filters.satisfies(&tmp_acc).await {
+                        if !filters.satisfies(&tmp_acc) {
                             continue;
                         }
 
@@ -128,27 +128,23 @@ impl SnapshotCreator {
                             write_version: 0,
                         };
                         if is_init {
-                            storage.initilize_or_update_account(account_to_save).await
+                            storage.initilize_or_update_account(account_to_save)
                         } else {
-                            storage
-                                .update_account(
-                                    account_to_save,
-                                    lite_account_manager_common::commitment::Commitment::Processed,
-                                )
-                                .await;
+                            storage.update_account(
+                                account_to_save,
+                                lite_account_manager_common::commitment::Commitment::Processed,
+                            );
                         }
                     }
                     ChannelMessage::Slot(slot, parent, commitment) => {
-                        storage
-                            .process_slot_data(
-                                SlotInfo {
-                                    slot,
-                                    parent,
-                                    root: 0,
-                                },
-                                commitment.into(),
-                            )
-                            .await;
+                        storage.process_slot_data(
+                            SlotInfo {
+                                slot,
+                                parent,
+                                root: 0,
+                            },
+                            commitment.into(),
+                        );
                     }
                     _ => {
                         // other message are not treated
@@ -160,14 +156,11 @@ impl SnapshotCreator {
         });
     }
 
-    pub async fn create_snapshot(
-        &self,
-        program_id: Pubkey,
-    ) -> Result<Vec<u8>, AccountLoadingError> {
-        self.storage.create_snapshot(program_id).await
+    pub fn create_snapshot(&self, program_id: Pubkey) -> Result<Vec<u8>, AccountLoadingError> {
+        self.storage.create_snapshot(program_id)
     }
 
-    pub async fn get_program_accounts(
+    pub fn get_program_accounts(
         &self,
         program_pubkey: Pubkey,
         account_filters: Option<Vec<AccountFilterType>>,
@@ -175,6 +168,5 @@ impl SnapshotCreator {
     ) -> Result<Vec<AccountManagerAccountData>, AccountLoadingError> {
         self.storage
             .get_program_accounts(program_pubkey, account_filters, commitment)
-            .await
     }
 }

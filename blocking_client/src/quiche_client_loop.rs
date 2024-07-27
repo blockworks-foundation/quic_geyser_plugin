@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use quic_geyser_common::{defaults::MAX_DATAGRAM_SIZE, message::Message};
+use quic_geyser_common::{defaults::{MAX_DATAGRAM_SIZE, MAX_PAYLOAD_BUFFER}, message::Message};
 
 use quic_geyser_quiche_utils::{
     quiche_reciever::{recv_message, ReadStreams},
@@ -140,7 +140,7 @@ pub fn create_quiche_client_thread(
 
         let maximum_streams = u64::MAX;
         let mut current_stream_id = 3;
-        let mut out = [0; MAX_DATAGRAM_SIZE];
+        let mut out = [0; MAX_PAYLOAD_BUFFER];
         let mut partial_responses = PartialResponses::new();
         let mut read_streams = ReadStreams::new();
         let mut connected = false;

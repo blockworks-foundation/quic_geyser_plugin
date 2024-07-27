@@ -72,9 +72,9 @@ quic-geyser-block-builder = {path = "block-builder", version = "0.1.5"}
 quic-geyser-snapshot = {path = "snapshot", version = "0.1.5"}
 
 # solana lite account manager for snapshot creation
-lite-account-manager-common = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", branch = "main" }
-lite-account-storage = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", branch = "main" }
-lite-token-account-storage = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", branch = "main" }
+lite-account-manager-common = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", tag = "v0.1.0" }
+lite-account-storage = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", tag = "v0.1.0" }
+lite-token-account-storage = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", tag = "v0.1.0" }
 
 [profile.release]
 debug = true

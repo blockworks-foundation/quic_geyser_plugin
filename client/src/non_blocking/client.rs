@@ -1,7 +1,7 @@
 use anyhow::bail;
 use quic_geyser_common::defaults::ALPN_GEYSER_PROTOCOL_ID;
 use quic_geyser_common::defaults::DEFAULT_MAX_RECIEVE_WINDOW_SIZE;
-use quic_geyser_common::defaults::MAX_DATAGRAM_SIZE;
+use quic_geyser_common::defaults::MAX_PAYLOAD_BUFFER;
 use quic_geyser_common::filters::Filter;
 use quic_geyser_common::message::Message;
 use quic_geyser_common::types::connections_parameters::ConnectionParameters;
@@ -19,7 +19,7 @@ pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> En
         let client_socket = UdpSocket::bind("0.0.0.0:0").expect("Client socket should be binded");
         let mut config = EndpointConfig::default();
         config
-            .max_udp_payload_size(MAX_DATAGRAM_SIZE as u16)
+            .max_udp_payload_size(MAX_PAYLOAD_BUFFER.try_into().unwrap())
             .expect("Should set max MTU");
         quinn::Endpoint::new(config, None, client_socket, Arc::new(TokioRuntime))
             .expect("create_endpoint quinn::Endpoint::new")
@@ -252,7 +252,10 @@ mod tests {
         let msg_acc_3 = Message::AccountMsg(get_account_for_test(2, 100));
         let msg_acc_4 = Message::AccountMsg(get_account_for_test(3, 1_000));
         let msg_acc_5 = Message::AccountMsg(get_account_for_test(4, 10_000));
-        let msgs = [msg_acc_1, msg_acc_2, msg_acc_3, msg_acc_4, msg_acc_5];
+        let msg_acc_6 = Message::AccountMsg(get_account_for_test(4, 100_000_000));
+        let msgs = [
+            msg_acc_1, msg_acc_2, msg_acc_3, msg_acc_4, msg_acc_5, msg_acc_6,
+        ];
 
         let jh = {
             let msgs = msgs.clone();

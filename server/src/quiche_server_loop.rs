@@ -85,6 +85,13 @@ pub fn server_loop(
     } else {
         false
     };
+
+    let enable_gso = if quic_params.enable_gso {
+        detect_gso(&socket, MAX_DATAGRAM_SIZE)
+    } else {
+        false
+    };
+
     log::info!("pacing is enabled on server : {enable_pacing:?}");
 
     let dispatching_connections: DispachingConnections = Arc::new(Mutex::new(HashMap::<
@@ -280,7 +287,7 @@ pub fn server_loop(
 
         while let Ok((send_info, buffer)) = write_reciver.try_recv() {
             let send_result = if enable_pacing {
-                send_with_pacing(&socket, &buffer, &send_info)
+                send_with_pacing(&socket, &buffer, &send_info, enable_gso)
             } else {
                 socket.send_to(&buffer, send_info.to)
             };
@@ -316,7 +323,7 @@ fn create_client_task(
         let mut connection = connection;
         let mut instance = Instant::now();
         let mut closed = false;
-        let mut out = [0; MAX_DATAGRAM_SIZE];
+        let mut out = [0; 65535];
 
         let mut poll = mio::Poll::new().unwrap();
         let mut events = mio::Events::with_capacity(1024);
@@ -337,6 +344,7 @@ fn create_client_task(
         let number_of_writable_streams = Arc::new(AtomicU64::new(0));
         let messages_added = Arc::new(AtomicU64::new(0));
         let quit = Arc::new(AtomicBool::new(false));
+        let max_burst_size = MAX_DATAGRAM_SIZE * 10;
 
         {
             let number_of_loops = number_of_loops.clone();
@@ -549,26 +557,51 @@ fn create_client_task(
                 }
             }
 
-            loop {
-                match connection.send(&mut out) {
-                    Ok((len, send_info)) => {
-                        number_of_meesages_to_network
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        sender.send((send_info, out[..len].to_vec())).unwrap();
-                    }
-                    Err(quiche::Error::Done) => {
-                        break;
-                    }
-                    Err(e) => {
-                        log::error!(
-                            "{} send failed: {:?}, closing connection",
-                            connection.trace_id(),
-                            e
-                        );
-                        connection.close(false, 0x1, b"fail").ok();
-                        break;
-                    }
-                };
+            let mut send_message_to = None;
+            let mut total_length = 0;
+            let mut done_writing = false;
+
+            'writing_loop: while !done_writing {
+                while total_length < max_burst_size {
+                    match connection.send(&mut out[total_length..max_burst_size]) {
+                        Ok((len, send_info)) => {
+                            number_of_meesages_to_network
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            send_message_to.get_or_insert(send_info);
+                            total_length += len;
+                            if len < MAX_DATAGRAM_SIZE {
+                                break;
+                            }
+                        }
+                        Err(quiche::Error::BufferTooShort) => {
+                            // retry later
+                            log::trace!("{} buffer to short", connection.trace_id());
+                            break;
+                        }
+                        Err(quiche::Error::Done) => {
+                            done_writing = true;
+                            break;
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "{} send failed: {:?}, closing connection",
+                                connection.trace_id(),
+                                e
+                            );
+                            connection.close(false, 0x1, b"fail").ok();
+                            break 'writing_loop;
+                        }
+                    };
+                }
+
+                if total_length > 0 && send_message_to.is_some() {
+                    sender
+                        .send((send_message_to.unwrap(), out[..total_length].to_vec()))
+                        .unwrap();
+                    total_length = 0;
+                } else {
+                    break;
+                }
             }
 
             if connection.is_closed() {
@@ -687,10 +720,13 @@ fn std_time_to_u64(time: &std::time::Instant) -> u64 {
     sec * NANOS_PER_SEC + nsec as u64
 }
 
+const GSO_SEGMENT_SIZE: u16 = MAX_DATAGRAM_SIZE as u16;
+
 fn send_with_pacing(
     socket: &mio::net::UdpSocket,
     buf: &[u8],
     send_info: &quiche::SendInfo,
+    enable_gso: bool,
 ) -> std::io::Result<usize> {
     use nix::sys::socket::sendmsg;
     use nix::sys::socket::ControlMessage;
@@ -707,8 +743,24 @@ fn send_with_pacing(
     let send_time = std_time_to_u64(&send_info.at);
     let cmsg_txtime = ControlMessage::TxTime(&send_time);
 
-    match sendmsg(sockfd, &iov, &[cmsg_txtime], MsgFlags::empty(), Some(&dst)) {
+    let mut cmgs = vec![cmsg_txtime];
+    if enable_gso {
+        cmgs.push(ControlMessage::UdpGsoSegments(&GSO_SEGMENT_SIZE));
+    }
+
+    match sendmsg(sockfd, &iov, &cmgs, MsgFlags::empty(), Some(&dst)) {
         Ok(v) => Ok(v),
         Err(e) => Err(e.into()),
     }
+}
+
+pub fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
+    use nix::sys::socket::setsockopt;
+    use nix::sys::socket::sockopt::UdpGsoSegment;
+    use std::os::unix::io::AsRawFd;
+
+    // mio::net::UdpSocket doesn't implement AsFd (yet?).
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(socket.as_raw_fd()) };
+
+    setsockopt(&fd, UdpGsoSegment, &(segment_size as i32)).is_ok()
 }

@@ -2191,28 +2191,26 @@ dependencies = [
 [[package]]
 name = "lite-account-manager-common"
 version = "0.1.0"
-source = "git+https://github.com/blockworks-foundation/solana-lite-account-manager.git?branch=main#c96e229d2e47b17a6f7b5dc174cc34fbbc2ee01f"
+source = "git+https://github.com/blockworks-foundation/solana-lite-account-manager.git?tag=v0.1.0#870656be65c7099068a9726e3f51d579c877f42f"
 dependencies = [
  "anyhow",
- "async-trait",
  "base64 0.21.7",
  "bs58",
  "itertools",
+ "log",
  "lz4",
  "serde",
  "serde_json",
  "solana-rpc-client-api",
  "solana-sdk",
- "tokio",
  "zstd 0.11.2+zstd.1.5.2",
 ]
 
 [[package]]
 name = "lite-account-storage"
 version = "0.1.0"
-source = "git+https://github.com/blockworks-foundation/solana-lite-account-manager.git?branch=main#c96e229d2e47b17a6f7b5dc174cc34fbbc2ee01f"
+source = "git+https://github.com/blockworks-foundation/solana-lite-account-manager.git?tag=v0.1.0#870656be65c7099068a9726e3f51d579c877f42f"
 dependencies = [
- "async-trait",
  "bincode",
  "dashmap",
  "futures",
@@ -2222,17 +2220,15 @@ dependencies = [
  "log",
  "prometheus",
  "solana-sdk",
- "tokio",
 ]
 
 [[package]]
 name = "lite-token-account-storage"
 version = "0.1.0"
-source = "git+https://github.com/blockworks-foundation/solana-lite-account-manager.git?branch=main#c96e229d2e47b17a6f7b5dc174cc34fbbc2ee01f"
+source = "git+https://github.com/blockworks-foundation/solana-lite-account-manager.git?tag=v0.1.0#870656be65c7099068a9726e3f51d579c877f42f"
 dependencies = [
  "anyhow",
  "arrayref",
- "async-trait",
  "bincode",
  "bitflags 2.6.0",
  "dashmap",
@@ -2248,7 +2244,6 @@ dependencies = [
  "solana-sdk",
  "spl-token",
  "spl-token-2022 3.0.4",
- "tokio",
 ]
 
 [[package]]
