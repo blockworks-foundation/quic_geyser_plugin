@@ -46,8 +46,11 @@ pub fn main() {
     let mut slot = 1;
     let mut write_version = 1;
     let mut rand = thread_rng();
-    let data = (0..args.account_data_size as usize)
-        .map(|_| rand.gen::<u8>())
+    let datas = (0..args.number_of_random_accounts)
+        .map(|_| {
+            let size = rand.gen_range(args.min_account_data_size..args.max_account_data_size);
+            (0..size as usize).map(|_| rand.gen::<u8>()).collect_vec()
+        })
         .collect_vec();
     loop {
         let diff = Instant::now().duration_since(instant);
@@ -58,11 +61,12 @@ pub fn main() {
         slot += 1;
         for _ in 0..args.accounts_per_second {
             write_version += 1;
+            let data_index = rand.gen::<usize>() % args.number_of_random_accounts;
             let account = AccountData {
                 pubkey: Pubkey::new_unique(),
                 account: Account {
                     lamports: rand.gen(),
-                    data: data.clone(),
+                    data: datas.get(data_index).unwrap().clone(),
                     owner: Pubkey::new_unique(),
                     executable: false,
                     rent_epoch: u64::MAX,

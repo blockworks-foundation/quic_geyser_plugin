@@ -4,7 +4,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use quic_geyser_common::{defaults::{MAX_DATAGRAM_SIZE, MAX_PAYLOAD_BUFFER}, message::Message};
+use quic_geyser_common::{
+    defaults::{MAX_DATAGRAM_SIZE, MAX_PAYLOAD_BUFFER},
+    message::Message,
+};
 
 use quic_geyser_quiche_utils::{
     quiche_reciever::{recv_message, ReadStreams},
