@@ -77,8 +77,7 @@ pub async fn recv_message(
     )
     .await??
     {
-        let bytes = data.bytes.to_vec();
-        buffer.extend_from_slice(&bytes);
+        buffer.extend_from_slice(&data.bytes);
     }
     Ok(bincode::deserialize::<Message>(&buffer)?)
 }

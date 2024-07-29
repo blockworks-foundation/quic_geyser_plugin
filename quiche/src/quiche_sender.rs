@@ -80,7 +80,7 @@ pub fn handle_writable(
         //     }
         // }
     } else {
-        resp.binary = resp.binary[written..].to_vec();
+        resp.binary.drain(0..written);
         resp.written += written;
     }
     Ok(())
