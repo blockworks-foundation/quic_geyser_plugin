@@ -62,15 +62,12 @@ impl SnapshotCreator {
         }
     }
 
-    pub fn start_listening(
-        &self,
-        mut recieve_channel: tokio::sync::mpsc::UnboundedReceiver<ChannelMessage>,
-    ) {
+    pub fn start_listening(&self, recieve_channel: std::sync::mpsc::Receiver<ChannelMessage>) {
         let storage = self.storage.clone();
         let filters = self.filters.clone();
         let compression = self.compression_mode.clone();
         tokio::spawn(async move {
-            while let Some(message) = recieve_channel.recv().await {
+            while let Ok(message) = recieve_channel.recv() {
                 match message {
                     ChannelMessage::Account(account, slot, is_init) => {
                         let tmp_acc = AccountManagerAccountData {

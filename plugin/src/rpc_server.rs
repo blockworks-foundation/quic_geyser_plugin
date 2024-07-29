@@ -55,7 +55,7 @@ impl RpcServerImpl {
             .set_middleware(middleware)
             .max_connections(10)
             .max_request_body_size(1024 * 1024) // 16 MB
-            .max_response_body_size(1024 * 1024) // 512 MBs
+            .max_response_body_size(512 * 1024 * 1024) // 512 MBs
             .http_only()
             .build(http_addr.clone())
             .await?

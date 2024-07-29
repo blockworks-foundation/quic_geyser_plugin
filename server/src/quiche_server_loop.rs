@@ -19,7 +19,7 @@ use quic_geyser_common::{
     channel_message::ChannelMessage,
     compression::CompressionType,
     config::QuicParameters,
-    defaults::{MAX_ALLOWED_PARTIAL_RESPONSES, MAX_DATAGRAM_SIZE},
+    defaults::MAX_DATAGRAM_SIZE,
     filters::Filter,
     message::Message,
     types::{account::Account, block_meta::SlotMeta, slot_identifier::SlotIdentifier},
@@ -327,11 +327,6 @@ fn create_client_task(
 
         let mut poll = mio::Poll::new().unwrap();
         let mut events = mio::Events::with_capacity(1024);
-        let mut max_allowed_partial_responses = MAX_ALLOWED_PARTIAL_RESPONSES as usize;
-        let upper_limit_allowed_partial_responses =
-            (MAX_ALLOWED_PARTIAL_RESPONSES * 9 / 10) as usize;
-        let lower_limit_allowed_partial_responses =
-            (MAX_ALLOWED_PARTIAL_RESPONSES * 3 / 4) as usize;
 
         poll.registry()
             .register(&mut receiver, mio::Token(0), mio::Interest::READABLE)
@@ -460,78 +455,77 @@ fn create_client_task(
                     }
                 }
 
-                while is_writable && partial_responses.len() < max_allowed_partial_responses {
-                    let close = match message_channel.try_recv() {
-                        Ok((message, priority)) => {
-                            messages_in_queue.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                            let stream_id = next_stream;
-                            next_stream =
-                                get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
+                if is_writable {
+                    loop {
+                        let close = match message_channel.try_recv() {
+                            Ok((message, priority)) => {
+                                messages_in_queue
+                                    .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                                let stream_id = next_stream;
+                                next_stream =
+                                    get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
 
-                            if let Err(e) = connection.stream_priority(
-                                stream_id,
-                                priority,
-                                incremental_priority,
-                            ) {
-                                if !closed {
-                                    log::error!(
-                                        "Unable to set priority for the stream {}, error {}",
-                                        stream_id,
-                                        e
-                                    );
-                                }
-                                true
-                            } else {
-                                messages_added.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                match send_message(
-                                    &mut connection,
-                                    &mut partial_responses,
+                                if let Err(e) = connection.stream_priority(
                                     stream_id,
-                                    &message,
+                                    priority,
+                                    incremental_priority,
                                 ) {
-                                    Ok(_) => false,
-                                    Err(quiche::Error::Done) => {
-                                        // done writing / queue is full
+                                    if !closed {
+                                        log::error!(
+                                            "Unable to set priority for the stream {}, error {}",
+                                            stream_id,
+                                            e
+                                        );
+                                    }
+                                    true
+                                } else {
+                                    messages_added
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    match send_message(
+                                        &mut connection,
+                                        &mut partial_responses,
+                                        stream_id,
+                                        &message,
+                                    ) {
+                                        Ok(_) => false,
+                                        Err(quiche::Error::Done) => {
+                                            // done writing / queue is full
+                                            break;
+                                        }
+                                        Err(e) => {
+                                            log::error!("error sending message : {e:?}");
+                                            true
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                match e {
+                                    mpsc::TryRecvError::Empty => {
                                         break;
                                     }
-                                    Err(e) => {
-                                        log::error!("error sending message : {e:?}");
+                                    mpsc::TryRecvError::Disconnected => {
+                                        // too many message the connection is lagging
+                                        log::error!("channel disconnected by dispatcher");
                                         true
                                     }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            match e {
-                                mpsc::TryRecvError::Empty => {
-                                    break;
-                                }
-                                mpsc::TryRecvError::Disconnected => {
-                                    // too many message the connection is lagging
-                                    log::error!("channel disconnected by dispatcher");
-                                    true
-                                }
-                            }
-                        }
-                    };
+                        };
 
-                    if close && !closed && stop_laggy_client {
-                        if let Err(e) = connection.close(true, 1, b"laggy client") {
-                            if e != quiche::Error::Done {
-                                log::error!("error closing client : {}", e);
+                        if close && !closed && stop_laggy_client {
+                            if let Err(e) = connection.close(true, 1, b"laggy client") {
+                                if e != quiche::Error::Done {
+                                    log::error!("error closing client : {}", e);
+                                }
+                            } else {
+                                log::info!("Stopping laggy client : {}", connection.trace_id(),);
                             }
-                        } else {
-                            log::info!("Stopping laggy client : {}", connection.trace_id(),);
+                            closed = true;
+                            break;
                         }
-                        closed = true;
-                        break;
                     }
                 }
-            }
-            if partial_responses.len() > upper_limit_allowed_partial_responses {
-                max_allowed_partial_responses = lower_limit_allowed_partial_responses;
-            } else {
-                max_allowed_partial_responses = MAX_ALLOWED_PARTIAL_RESPONSES as usize;
             }
 
             if instance.elapsed() > Duration::from_secs(1) {
