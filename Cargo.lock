@@ -65,8 +65,8 @@ dependencies = [
 
 [[package]]
 name = "agave-geyser-plugin-interface"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "log",
  "solana-sdk",
@@ -3813,8 +3813,8 @@ dependencies = [
 
 [[package]]
 name = "solana-account-decoder"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "Inflector",
  "base64 0.21.7",
@@ -3837,8 +3837,8 @@ dependencies = [
 
 [[package]]
 name = "solana-config-program"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "bincode",
  "chrono",
@@ -3850,8 +3850,8 @@ dependencies = [
 
 [[package]]
 name = "solana-frozen-abi"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "block-buffer 0.10.4",
  "bs58",
@@ -3874,8 +3874,8 @@ dependencies = [
 
 [[package]]
 name = "solana-frozen-abi-macro"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3885,8 +3885,8 @@ dependencies = [
 
 [[package]]
 name = "solana-logger"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "env_logger",
  "lazy_static",
@@ -3895,8 +3895,8 @@ dependencies = [
 
 [[package]]
 name = "solana-measure"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "log",
  "solana-sdk",
@@ -3904,8 +3904,8 @@ dependencies = [
 
 [[package]]
 name = "solana-metrics"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "crossbeam-channel",
  "gethostname",
@@ -3918,8 +3918,8 @@ dependencies = [
 
 [[package]]
 name = "solana-program"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -3973,8 +3973,8 @@ dependencies = [
 
 [[package]]
 name = "solana-program-runtime"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "base64 0.21.7",
  "bincode",
@@ -4000,8 +4000,8 @@ dependencies = [
 
 [[package]]
 name = "solana-rpc-client"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -4025,8 +4025,8 @@ dependencies = [
 
 [[package]]
 name = "solana-rpc-client-api"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "base64 0.21.7",
  "bs58",
@@ -4046,8 +4046,8 @@ dependencies = [
 
 [[package]]
 name = "solana-sdk"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "assert_matches",
  "base64 0.21.7",
@@ -4100,8 +4100,8 @@ dependencies = [
 
 [[package]]
 name = "solana-sdk-macro"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "bs58",
  "proc-macro2",
@@ -4118,8 +4118,8 @@ checksum = "468aa43b7edb1f9b7b7b686d5c3aeb6630dc1708e86e31343499dd5c4d775183"
 
 [[package]]
 name = "solana-transaction-status"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "Inflector",
  "base64 0.21.7",
@@ -4142,8 +4142,8 @@ dependencies = [
 
 [[package]]
 name = "solana-version"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "log",
  "rustc_version",
@@ -4157,8 +4157,8 @@ dependencies = [
 
 [[package]]
 name = "solana-vote-program"
-version = "1.18.16"
-source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.16_mango_rpc_optimizations#7bb0056342e9584291645288a96ec43159f44096"
+version = "1.18.18"
+source = "git+https://github.com/blockworks-foundation/solana.git?branch=v1.18.18_mango_rpc_optimizations#967a4456e5b9b186532c89ee68f7364d04c8dd2a"
 dependencies = [
  "bincode",
  "log",
@@ -4178,9 +4178,9 @@ dependencies = [
 
 [[package]]
 name = "solana-zk-token-sdk"
-version = "1.18.16"
+version = "1.18.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8dad1753ec3b189879c8756ac35471467116dfc93d7aeb68cfd28f22a02c850d"
+checksum = "616130045004bccc9dd016fe03ac458db38bd61456f1d16f126acb60f968dcae"
 dependencies = [
  "aes-gcm-siv",
  "base64 0.21.7",

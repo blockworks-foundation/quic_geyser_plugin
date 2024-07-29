@@ -66,7 +66,7 @@ impl SnapshotCreator {
         let storage = self.storage.clone();
         let filters = self.filters.clone();
         let compression = self.compression_mode.clone();
-        tokio::spawn(async move {
+        std::thread::spawn(move || {
             while let Ok(message) = recieve_channel.recv() {
                 match message {
                     ChannelMessage::Account(account, slot, is_init) => {
