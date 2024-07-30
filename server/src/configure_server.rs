@@ -42,9 +42,12 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     config.set_initial_max_stream_data_uni(recieve_window_size);
     config.set_initial_max_streams_bidi(max_concurrent_streams);
     config.set_initial_max_streams_uni(max_concurrent_streams);
-    config.set_disable_active_migration(true);
-    config.set_max_connection_window(128 * 1024 * 1024); // 128 Mbs
+    config.set_max_connection_window(24 * 1024 * 1024);
+    config.set_max_stream_window(16 * 1024 * 1024);
+
     config.enable_early_data();
+    config.grease(true);
+    config.enable_hystart(true);
 
     if use_bbr {
         config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
@@ -56,7 +59,6 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     config.set_max_ack_delay(maximum_ack_delay);
     config.set_ack_delay_exponent(ack_exponent);
     config.set_initial_congestion_window_packets(1024);
-    config.set_max_stream_window(256 * 1024 * 1024);
     config.enable_pacing(enable_pacing);
     Ok(config)
 }
