@@ -11,9 +11,9 @@ pub fn send_message(
     connection: &mut Connection,
     partial_responses: &mut PartialResponses,
     stream_id: u64,
-    message: &[u8],
+    mut message: Vec<u8>,
 ) -> std::result::Result<(), quiche::Error> {
-    let written = match connection.stream_send(stream_id, message, true) {
+    let written = match connection.stream_send(stream_id, &message, true) {
         Ok(v) => v,
         Err(quiche::Error::Done) => 0,
         Err(e) => {
@@ -23,8 +23,9 @@ pub fn send_message(
     log::trace!("dispatched {} on stream id : {}", written, stream_id);
 
     if written < message.len() {
+        message.drain(..written);
         let response = PartialResponse {
-            binary: message[written..].to_vec(),
+            binary: message,
             written,
         };
         partial_responses.insert(stream_id, response);

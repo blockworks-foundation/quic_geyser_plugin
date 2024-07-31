@@ -13,7 +13,7 @@ use quic_geyser_common::{
 };
 use quic_geyser_server::quic_server::QuicServer;
 use rand::{thread_rng, Rng};
-use solana_sdk::{account::Account, pubkey::Pubkey};
+use solana_sdk::{account::Account, commitment_config::CommitmentConfig, pubkey::Pubkey};
 
 pub mod cli;
 
@@ -59,6 +59,27 @@ pub fn main() {
         }
         instant = Instant::now();
         slot += 1;
+        quic_server
+            .send_message(ChannelMessage::Slot(
+                slot,
+                slot.saturating_sub(1),
+                CommitmentConfig::processed(),
+            ))
+            .unwrap();
+        quic_server
+            .send_message(ChannelMessage::Slot(
+                slot.saturating_sub(1),
+                slot.saturating_sub(2),
+                CommitmentConfig::confirmed(),
+            ))
+            .unwrap();
+        quic_server
+            .send_message(ChannelMessage::Slot(
+                slot.saturating_sub(2),
+                slot.saturating_sub(3),
+                CommitmentConfig::finalized(),
+            ))
+            .unwrap();
         for _ in 0..args.accounts_per_second {
             write_version += 1;
             let data_index = rand.gen::<usize>() % args.number_of_random_accounts;

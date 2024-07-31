@@ -165,7 +165,7 @@ pub fn create_quiche_client_thread(
                     &mut connection,
                     &mut partial_responses,
                     current_stream_id,
-                    &ping_message,
+                    ping_message.clone(),
                 ) {
                     log::error!("Error sending ping message : {e}");
                 }
@@ -225,7 +225,7 @@ pub fn create_quiche_client_thread(
                                 &mut connection,
                                 &mut partial_responses,
                                 current_stream_id,
-                                &binary,
+                                binary,
                             ) {
                                 log::error!("Sending failed with error {e:?}");
                             }

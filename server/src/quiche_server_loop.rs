@@ -485,7 +485,7 @@ fn create_client_task(
                                         &mut connection,
                                         &mut partial_responses,
                                         stream_id,
-                                        &message,
+                                        message,
                                     ) {
                                         Ok(_) => false,
                                         Err(quiche::Error::Done) => {
