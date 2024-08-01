@@ -12,7 +12,7 @@ use quic_geyser_common::{
 use quic_geyser_quiche_utils::{
     quiche_reciever::{recv_message, ReadStreams},
     quiche_sender::{handle_writable, send_message},
-    quiche_utils::{get_next_unidi, PartialResponses},
+    quiche_utils::{generate_cid_and_reset_token, get_next_unidi, PartialResponses},
 };
 
 use anyhow::bail;
@@ -30,11 +30,8 @@ pub fn client_loop(
     let mut poll = mio::Poll::new()?;
     let mut events = mio::Events::with_capacity(1024);
 
-    poll.registry().register(
-        &mut socket,
-        mio::Token(0),
-        mio::Interest::READABLE | mio::Interest::WRITABLE,
-    )?;
+    poll.registry()
+        .register(&mut socket, mio::Token(0), mio::Interest::READABLE)?;
 
     let mut scid = [0; quiche::MAX_CONN_ID_LEN];
     if SystemRandom::new().fill(&mut scid[..]).is_err() {
@@ -150,14 +147,16 @@ pub fn create_quiche_client_thread(
         let mut instance = Instant::now();
         let ping_message = bincode::serialize(&Message::Ping).unwrap();
 
+        // Generate a random source connection ID for the connection.
+        let rng = SystemRandom::new();
+
         'client: loop {
-            poll.poll(&mut events, Some(Duration::from_millis(10)))
+            poll.poll(&mut events, Some(Duration::from_millis(100)))
                 .unwrap();
             if events.is_empty() {
                 connection.on_timeout();
             }
 
-            // sending ping
             if instance.elapsed() > Duration::from_secs(1) {
                 log::debug!("sending ping to the server");
                 current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
@@ -192,6 +191,20 @@ pub fn create_quiche_client_thread(
             if !connected && connection.is_established() {
                 is_connected.store(true, std::sync::atomic::Ordering::Relaxed);
                 connected = true;
+            }
+
+            // See whether source Connection IDs have been retired.
+            while let Some(retired_scid) = connection.retired_scid_next() {
+                log::info!("Retiring source CID {:?}", retired_scid);
+            }
+
+            // Provides as many CIDs as possible.
+            while connection.scids_left() > 0 {
+                let (scid, reset_token) = generate_cid_and_reset_token(&rng);
+
+                if connection.new_scid(&scid, reset_token, false).is_err() {
+                    break;
+                }
             }
 
             // chanel updates
@@ -234,12 +247,13 @@ pub fn create_quiche_client_thread(
                             match e {
                                 std::sync::mpsc::TryRecvError::Empty => {
                                     // no more new messages
-                                    break;
                                 }
                                 std::sync::mpsc::TryRecvError::Disconnected => {
+                                    log::error!("message_queue disconnected");
                                     let _ = connection.close(true, 0, b"no longer needed");
                                 }
                             }
+                            break;
                         }
                     }
                 }

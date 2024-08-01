@@ -138,6 +138,7 @@ fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>
     println!("Subscribed");
 
     std::thread::spawn(move || {
+        let _client = client;
         while let Ok(message) = reciever.recv() {
             let message_size = bincode::serialize(&message).unwrap().len();
             client_stats
@@ -219,6 +220,7 @@ fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>
                 }
             }
         }
+        log::info!("breaking client thread");
         break_thread.store(true, std::sync::atomic::Ordering::Relaxed);
     });
 }
