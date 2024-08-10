@@ -1,6 +1,6 @@
 use std::{fs::read_to_string, path::Path};
 
-use agave_geyser_plugin_interface::geyser_plugin_interface::GeyserPluginError;
+use solana_geyser_plugin_interface::geyser_plugin_interface::GeyserPluginError;
 use quic_geyser_common::config::ConfigQuicPlugin;
 use quic_geyser_snapshot::snapshot_config::SnapshotConfig;
 use serde::{Deserialize, Serialize};
