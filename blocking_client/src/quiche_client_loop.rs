@@ -76,7 +76,7 @@ pub fn client_loop(
 
     let mut buf = [0; 65535];
     'client: loop {
-        poll.poll(&mut events, Some(Duration::from_millis(100)))?;
+        poll.poll(&mut events, Some(Duration::from_millis(10)))?;
 
         'read: loop {
             match socket.recv_from(&mut buf) {
@@ -151,7 +151,7 @@ pub fn create_quiche_client_thread(
         let rng = SystemRandom::new();
 
         'client: loop {
-            poll.poll(&mut events, Some(Duration::from_millis(100)))
+            poll.poll(&mut events, Some(Duration::from_millis(10)))
                 .unwrap();
             if events.is_empty() {
                 connection.on_timeout();
