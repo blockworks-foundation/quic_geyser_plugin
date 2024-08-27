@@ -294,6 +294,7 @@ fn create_client_task(
         let mut closed = false;
         let mut out = [0; 65535];
         let mut datagram_size = MAX_DATAGRAM_SIZE;
+        let mut logged_is_draining = false;
 
         let number_of_loops = Arc::new(AtomicU64::new(0));
         let number_of_meesages_from_network = Arc::new(AtomicU64::new(0));
@@ -346,7 +347,7 @@ fn create_client_task(
 
         let mut continue_write = false;
         loop {
-            log::debug!("start");
+            log::trace!("start");
             number_of_loops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let mut timeout = if continue_write {
                 Duration::from_secs(0)
@@ -362,7 +363,7 @@ fn create_client_task(
 
                 match internal_message {
                     InternalMessage::Packet(info, mut buf) => {
-                        log::debug!("packet");
+                        log::trace!("packet");
                         // handle packet from udp socket
                         let buf = buf.as_mut_slice();
                         match connection.recv(buf, info) {
@@ -377,7 +378,7 @@ fn create_client_task(
                         };
                     }
                     InternalMessage::ClientMessage(message, priority) => {
-                        log::debug!("client");
+                        log::trace!("client");
                         // handle message from client
                         let stream_id = next_stream;
                         next_stream =
@@ -428,7 +429,7 @@ fn create_client_task(
                     }
                 }
             }
-            log::debug!("readble");
+            log::trace!("readble");
             if !did_read && !continue_write {
                 connection.on_timeout();
             }
@@ -459,7 +460,7 @@ fn create_client_task(
                     }
                 }
             }
-            log::debug!("writable");
+            log::trace!("writable");
             if !connection.is_closed()
                 && (connection.is_established() || connection.is_in_early_data())
             {
@@ -482,7 +483,7 @@ fn create_client_task(
             }
 
             if instance.elapsed() > Duration::from_secs(1) {
-                log::debug!("other tasks");
+                log::trace!("other tasks");
                 instance = Instant::now();
                 handle_path_events(&mut connection);
 
@@ -513,7 +514,7 @@ fn create_client_task(
                 datagram_size
             };
 
-            log::debug!("creating packets");
+            log::trace!("creating packets");
             while total_length < max_burst_size {
                 match connection.send(&mut out[total_length..max_burst_size]) {
                     Ok((len, send_info)) => {
@@ -568,7 +569,20 @@ fn create_client_task(
                 }
             }
 
+            if !logged_is_draining && connection.is_draining() {
+                log::warn!("connection is draining");
+                logged_is_draining = true;
+            }
+
             if connection.is_closed() {
+                if let Some(e) = connection.peer_error() {
+                    log::error!("peer error : {e:?} ");
+                }
+
+                if let Some(e) = connection.local_error() {
+                    log::error!("local error : {e:?} ");
+                }
+
                 log::info!(
                     "{} connection closed {:?}",
                     connection.trace_id(),
