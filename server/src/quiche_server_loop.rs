@@ -345,14 +345,14 @@ fn create_client_task(
             });
         }
 
-        let mut continue_write = false;
+        let mut continue_write = true;
         loop {
-            log::trace!("start");
+            log::debug!("start");
             number_of_loops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let mut timeout = if continue_write {
                 Duration::from_secs(0)
             } else {
-                Duration::from_millis(1)
+                connection.timeout().unwrap_or(Duration::from_secs(1))
             };
 
             let mut did_read = false;
@@ -363,7 +363,7 @@ fn create_client_task(
 
                 match internal_message {
                     InternalMessage::Packet(info, mut buf) => {
-                        log::trace!("packet");
+                        log::debug!("packet");
                         // handle packet from udp socket
                         let buf = buf.as_mut_slice();
                         match connection.recv(buf, info) {
@@ -378,7 +378,7 @@ fn create_client_task(
                         };
                     }
                     InternalMessage::ClientMessage(message, priority) => {
-                        log::trace!("client");
+                        log::debug!("client");
                         // handle message from client
                         let stream_id = next_stream;
                         next_stream =
@@ -429,7 +429,7 @@ fn create_client_task(
                     }
                 }
             }
-            log::trace!("readble");
+            log::debug!("readble");
             if !did_read && !continue_write {
                 connection.on_timeout();
             }
@@ -460,7 +460,7 @@ fn create_client_task(
                     }
                 }
             }
-            log::trace!("writable");
+            log::debug!("writable");
             if !connection.is_closed()
                 && (connection.is_established() || connection.is_in_early_data())
             {
@@ -483,7 +483,7 @@ fn create_client_task(
             }
 
             if instance.elapsed() > Duration::from_secs(1) {
-                log::trace!("other tasks");
+                log::debug!("other tasks");
                 instance = Instant::now();
                 handle_path_events(&mut connection);
 
@@ -514,7 +514,7 @@ fn create_client_task(
                 datagram_size
             };
 
-            log::trace!("creating packets");
+            log::debug!("creating packets");
             while total_length < max_burst_size {
                 match connection.send(&mut out[total_length..max_burst_size]) {
                     Ok((len, send_info)) => {
