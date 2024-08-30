@@ -51,7 +51,6 @@ pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> En
     transport_config.max_concurrent_uni_streams(VarInt::from(
         connection_parameters.max_number_of_streams as u32,
     ));
-    transport_config.mtu_discovery_config(None);
 
     transport_config.crypto_buffer_size(64 * 1024);
     transport_config
@@ -128,10 +127,12 @@ impl Client {
                                 let message = recv_message(recv_stream, timeout).await;
                                 match message {
                                     Ok(message) => {
-                                        let _ = sender.send(message);
+                                        if let Err(e) = sender.send(message) {
+                                            log::error!("Message sent error : {:?}", e)
+                                        }
                                     }
                                     Err(e) => {
-                                        log::trace!("Error getting message {}", e);
+                                        log::debug!("Error getting message {:?}", e);
                                     }
                                 }
                             });
@@ -140,10 +141,11 @@ impl Client {
                             ConnectionError::ConnectionClosed(_)
                             | ConnectionError::ApplicationClosed(_)
                             | ConnectionError::LocallyClosed => {
+                                log::debug!("Got {:?} while listing to the connection", e);
                                 break;
                             }
                             _ => {
-                                log::error!("Got {} while listing to the connection", e);
+                                log::error!("Got {:?} while listing to the connection", e);
                                 break;
                             }
                         },
