@@ -3,7 +3,7 @@ use std::{
     net::SocketAddr,
     net::UdpSocket,
     sync::{
-        atomic::{AtomicBool, AtomicU64},
+        atomic::AtomicBool,
         mpsc::{self, Sender},
         Arc, Mutex, RwLock,
     },
@@ -12,6 +12,7 @@ use std::{
 
 use anyhow::bail;
 use itertools::Itertools;
+use nix::sys::socket::sockopt::ReusePort;
 use quiche::ConnectionId;
 use ring::rand::SystemRandom;
 
@@ -295,60 +296,10 @@ fn create_client_task(
         let mut out = [0; 65535];
         let mut datagram_size = MAX_DATAGRAM_SIZE;
         let mut logged_is_draining = false;
-
-        let number_of_loops = Arc::new(AtomicU64::new(0));
-        let number_of_meesages_from_network = Arc::new(AtomicU64::new(0));
-        let number_of_meesages_to_network = Arc::new(AtomicU64::new(0));
-        let number_of_readable_streams = Arc::new(AtomicU64::new(0));
-        let number_of_writable_streams = Arc::new(AtomicU64::new(0));
-        let messages_added = Arc::new(AtomicU64::new(0));
         let quit = Arc::new(AtomicBool::new(false));
-
-        {
-            let number_of_loops = number_of_loops.clone();
-            let number_of_meesages_from_network = number_of_meesages_from_network.clone();
-            let number_of_meesages_to_network = number_of_meesages_to_network.clone();
-            let number_of_readable_streams = number_of_readable_streams.clone();
-            let number_of_writable_streams = number_of_writable_streams.clone();
-            let messages_added = messages_added.clone();
-            let quit = quit.clone();
-            std::thread::spawn(move || {
-                while !quit.load(std::sync::atomic::Ordering::Relaxed) {
-                    std::thread::sleep(Duration::from_secs(1));
-                    log::debug!("---------------------------------");
-                    log::debug!(
-                        "number of loop : {}",
-                        number_of_loops.swap(0, std::sync::atomic::Ordering::Relaxed)
-                    );
-                    log::debug!(
-                        "number of packets read : {}",
-                        number_of_meesages_from_network
-                            .swap(0, std::sync::atomic::Ordering::Relaxed)
-                    );
-                    log::debug!(
-                        "number of packets write : {}",
-                        number_of_meesages_to_network.swap(0, std::sync::atomic::Ordering::Relaxed)
-                    );
-                    log::debug!(
-                        "number_of_readable_streams : {}",
-                        number_of_readable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
-                    );
-                    log::debug!(
-                        "number_of_writable_streams : {}",
-                        number_of_writable_streams.swap(0, std::sync::atomic::Ordering::Relaxed)
-                    );
-                    log::debug!(
-                        "messages_added : {}",
-                        messages_added.swap(0, std::sync::atomic::Ordering::Relaxed)
-                    );
-                }
-            });
-        }
 
         let mut continue_write = true;
         loop {
-            log::debug!("start");
-            number_of_loops.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let mut timeout = if continue_write {
                 Duration::from_secs(0)
             } else {
@@ -363,14 +314,10 @@ fn create_client_task(
 
                 match internal_message {
                     InternalMessage::Packet(info, mut buf) => {
-                        log::debug!("packet");
                         // handle packet from udp socket
                         let buf = buf.as_mut_slice();
                         match connection.recv(buf, info) {
-                            Ok(_) => {
-                                number_of_meesages_from_network
-                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            }
+                            Ok(_) => {}
                             Err(e) => {
                                 log::error!("{} recv failed: {:?}", connection.trace_id(), e);
                                 break;
@@ -378,7 +325,6 @@ fn create_client_task(
                         };
                     }
                     InternalMessage::ClientMessage(message, priority) => {
-                        log::debug!("client");
                         // handle message from client
                         let stream_id = next_stream;
                         next_stream =
@@ -396,7 +342,6 @@ fn create_client_task(
                             }
                             true
                         } else {
-                            messages_added.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             match send_message(
                                 &mut connection,
                                 &mut partial_responses,
@@ -429,7 +374,7 @@ fn create_client_task(
                     }
                 }
             }
-            log::debug!("readble");
+
             if !did_read && !continue_write {
                 connection.on_timeout();
             }
@@ -438,7 +383,6 @@ fn create_client_task(
             if connection.is_in_early_data() || connection.is_established() {
                 // Process all readable streams.
                 for stream in connection.readable() {
-                    number_of_readable_streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let message = recv_message(&mut connection, &mut read_streams, stream);
                     match message {
                         Ok(Some(message)) => match message {
@@ -460,7 +404,7 @@ fn create_client_task(
                     }
                 }
             }
-            log::debug!("writable");
+
             if !connection.is_closed()
                 && (connection.is_established() || connection.is_in_early_data())
             {
@@ -514,12 +458,9 @@ fn create_client_task(
                 datagram_size
             };
 
-            log::debug!("creating packets");
             while total_length < max_burst_size {
                 match connection.send(&mut out[total_length..max_burst_size]) {
                     Ok((len, send_info)) => {
-                        number_of_meesages_to_network
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         send_message_to.get_or_insert(send_info);
                         total_length += len;
                         if len < datagram_size {
@@ -679,7 +620,7 @@ fn set_txtime_sockopt(sock: &UdpSocket) -> std::io::Result<()> {
     let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock.as_raw_fd()) };
 
     setsockopt(&fd, TxTime, &config)?;
-
+    setsockopt(&fd, ReusePort, &true)?;
     Ok(())
 }
 

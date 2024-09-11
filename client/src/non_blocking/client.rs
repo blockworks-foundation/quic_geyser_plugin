@@ -132,7 +132,7 @@ impl Client {
                                         }
                                     }
                                     Err(e) => {
-                                        log::debug!("Error getting message {:?}", e);
+                                        log::trace!("Error getting message {:?}", e);
                                     }
                                 }
                             });

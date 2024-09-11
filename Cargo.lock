@@ -3014,7 +3014,6 @@ dependencies = [
  "bincode",
  "itertools",
  "log",
- "mio",
  "quic-geyser-common",
  "quic-geyser-server",
  "quiche",
@@ -3034,8 +3033,6 @@ dependencies = [
  "itertools",
  "libc",
  "log",
- "mio",
- "mio_channel",
  "nix",
  "quic-geyser-common",
  "quic-geyser-quiche-utils",
@@ -3111,9 +3108,9 @@ dependencies = [
 
 [[package]]
 name = "quiche"
-version = "0.21.0"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7986f11a8f2c63ade53d9ce49ce46d912c8d4770defbb117e16fafae76d8b5e"
+checksum = "28e5a763fecb47867bd3720f69ec87031ff42fda1dc88be2cb5fbb3a558fa5e4"
 dependencies = [
  "boring",
  "cmake",
