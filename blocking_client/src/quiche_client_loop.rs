@@ -76,7 +76,7 @@ pub fn client_loop(
 
     let mut buf = [0; 65535];
     'client: loop {
-        poll.poll(&mut events, Some(Duration::from_micros(100)))?;
+        poll.poll(&mut events, Some(Duration::from_millis(10)))?;
 
         'read: loop {
             match socket.recv_from(&mut buf) {
@@ -151,7 +151,7 @@ pub fn create_quiche_client_thread(
         let rng = SystemRandom::new();
 
         'client: loop {
-            poll.poll(&mut events, Some(Duration::from_millis(100)))
+            poll.poll(&mut events, Some(Duration::from_millis(10)))
                 .unwrap();
             if events.is_empty() {
                 connection.on_timeout();
@@ -249,7 +249,6 @@ pub fn create_quiche_client_thread(
                                     // no more new messages
                                 }
                                 std::sync::mpsc::TryRecvError::Disconnected => {
-                                    log::error!("message_queue disconnected");
                                     let _ = connection.close(true, 0, b"no longer needed");
                                 }
                             }
@@ -405,7 +404,10 @@ mod tests {
         let (server_send_queue, rx_sent_queue) = mpsc::channel::<ChannelMessage>();
         let _server_loop_jh = std::thread::spawn(move || {
             if let Err(e) = server_loop(
-                QuicParameters::default(),
+                QuicParameters {
+                    incremental_priority: true,
+                    ..Default::default()
+                },
                 socket_addr,
                 rx_sent_queue,
                 CompressionType::Lz4Fast(8),

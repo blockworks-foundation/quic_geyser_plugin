@@ -428,23 +428,23 @@ pub async fn main() {
             transaction_notifications_stats.add_value(&transaction_notifications);
             block_notifications_stats.add_value(&block_notifications);
 
-            println!("------------------------------------------");
-            println!(
+            log::info!("------------------------------------------");
+            log::info!(
                 " DateTime : {:?}",
                 instant.duration_since(start_instance).as_secs()
             );
-            println!(" Bytes Transfered : {} Mbs/s", bytes_transfered / 1_000_000);
-            println!(
+            log::info!(" Bytes Transfered : {} Mbs/s", bytes_transfered / 1_000_000);
+            log::info!(
                 " Accounts transfered size (uncompressed) : {} Mbs",
                 total_accounts_size / 1_000_000
             );
-            println!(" Accounts Notified : {}", account_notification);
-            println!(" Slots Notified : {}", slot_notifications);
-            println!(" Blockmeta notified : {}", blockmeta_notifications);
-            println!(" Transactions notified : {}", transaction_notifications);
-            println!(" Blocks notified : {}", block_notifications);
+            log::info!(" Accounts Notified : {}", account_notification);
+            log::info!(" Slots Notified : {}", slot_notifications);
+            log::info!(" Blockmeta notified : {}", blockmeta_notifications);
+            log::info!(" Transactions notified : {}", transaction_notifications);
+            log::info!(" Blocks notified : {}", block_notifications);
 
-            println!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {}, Block slot: {}", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed), block_slot.load(std::sync::atomic::Ordering::Relaxed));
+            log::info!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {}, Block slot: {}", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed), block_slot.load(std::sync::atomic::Ordering::Relaxed));
 
             if counter % 10 == 0 {
                 println!("------------------STATS------------------------");
