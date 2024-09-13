@@ -1,5 +1,5 @@
 {
-  "libpath": "target/debug/libquic_geyser_plugin.so",
+  "libpath": "target/release/libquic_geyser_plugin.so",
   "quic_plugin": {
     "address": "[::]:10800",
     "compression_parameters": {
