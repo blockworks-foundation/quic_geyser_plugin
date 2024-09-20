@@ -64,18 +64,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "agave-geyser-plugin-interface"
-version = "1.18.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d440e759d65ccedd8b6aa2b0b4e3821f68a91ede65c6a43b0aab663b3c539ba1"
-dependencies = [
- "log",
- "solana-sdk",
- "solana-transaction-status",
- "thiserror",
-]
-
-[[package]]
 name = "ahash"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2961,7 +2949,6 @@ dependencies = [
 name = "quic-geyser-plugin"
 version = "0.1.5"
 dependencies = [
- "agave-geyser-plugin-interface",
  "anyhow",
  "base64 0.21.7",
  "cargo-lock",
@@ -2978,6 +2965,7 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-account-decoder",
+ "solana-geyser-plugin-interface",
  "solana-logger",
  "solana-rpc-client-api",
  "solana-sdk",
@@ -3879,6 +3867,18 @@ dependencies = [
  "quote",
  "rustc_version",
  "syn 2.0.70",
+]
+
+[[package]]
+name = "solana-geyser-plugin-interface"
+version = "1.18.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7372ddfbe94019a1263f2c8ee16e7778778787eab6d9c8e78a52c9cb86241ea2"
+dependencies = [
+ "log",
+ "solana-sdk",
+ "solana-transaction-status",
+ "thiserror",
 ]
 
 [[package]]

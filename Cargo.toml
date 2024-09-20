@@ -29,7 +29,7 @@ solana-logger = "~1.18.16"
 solana-rpc-client = "~1.18.16"
 solana-rpc-client-api = "~1.18.16"
 solana-account-decoder = "~1.18.16"
-agave-geyser-plugin-interface = "=1.18.16"
+solana-geyser-plugin-interface = "=1.18.16"
 
 itertools = "0.10.5"
 serde = "1.0.201"
