@@ -13,6 +13,7 @@ use std::{
 use anyhow::bail;
 use itertools::Itertools;
 use nix::sys::socket::sockopt::ReusePort;
+use prometheus::{opts, register_int_gauge, IntGauge};
 use quiche::ConnectionId;
 use ring::rand::SystemRandom;
 
@@ -34,6 +35,41 @@ use quic_geyser_quiche_utils::{
         validate_token, PartialResponses,
     },
 };
+
+lazy_static::lazy_static! {
+    static ref NUMBER_OF_CLIENTS: IntGauge =
+       register_int_gauge!(opts!("quic_plugin_nb_connection", "Number of connections")).unwrap();
+
+    static ref NUMBER_OF_CONNECTION_CLOSED: IntGauge =
+       register_int_gauge!(opts!("quic_plugin_nb_connection_closed", "Number of connection closed")).unwrap();
+
+    static ref NUMBER_OF_BYTES_SENT: IntGauge =
+       register_int_gauge!(opts!("quic_plugin_nb_bytes_sent", "Number of bytes sent")).unwrap();
+
+    static ref NUMBER_OF_BYTES_READ: IntGauge =
+       register_int_gauge!(opts!("quic_plugin_nb_bytes_read", "Number of bytes sent")).unwrap();
+
+    static ref NUMBER_OF_WRITE_COUNT: IntGauge =
+       register_int_gauge!(opts!("quic_plugin_nb_write_count", "Number of bytes sent")).unwrap();
+
+    static ref NUMBER_OF_READ_COUNT: IntGauge =
+       register_int_gauge!(opts!("quic_plugin_nb_read_count", "Number of account updates")).unwrap();
+
+    static ref NUMBER_OF_ACCOUNT_UPDATES: IntGauge =
+       register_int_gauge!(opts!("quic_plugin_nb_account_updates", "Number of account updates")).unwrap();
+
+    static ref NUMBER_OF_TRANSACTION_UPDATES: IntGauge =
+       register_int_gauge!(opts!("quic_plugin_nb_transaction_updates", "Number of transaction updates")).unwrap();
+
+    static ref NUMBER_OF_SLOT_UPDATES: IntGauge =
+       register_int_gauge!(opts!("quic_plugin_nb_slot_updates", "Number of slot updates")).unwrap();
+
+    static ref NUMBER_OF_BLOCKMETA_UPDATE: IntGauge =
+       register_int_gauge!(opts!("quic_plugin_nb_blockmeta_updates", "Number of blockmeta updates")).unwrap();
+
+    static ref NUMBER_OF_BLOCK_UPDATES: IntGauge =
+       register_int_gauge!(opts!("quic_plugin_nb_block_updates", "Number of block updates")).unwrap();
+}
 
 use crate::configure_server::configure_server;
 
@@ -108,6 +144,8 @@ pub fn server_loop(
             }
         };
 
+        NUMBER_OF_BYTES_READ.add(len as i64);
+        NUMBER_OF_READ_COUNT.inc();
         let pkt_buf = &mut buf[..len];
 
         // Parse the QUIC packet's header.
@@ -299,6 +337,7 @@ fn create_client_task(
         let quit = Arc::new(AtomicBool::new(false));
 
         let mut continue_write = true;
+        NUMBER_OF_CLIENTS.inc();
         loop {
             let mut timeout = if continue_write {
                 Duration::from_secs(0)
@@ -489,6 +528,8 @@ fn create_client_task(
             if total_length > 0 && send_message_to.is_some() {
                 log::debug!("sending :{total_length:?}");
                 continue_write = true;
+                NUMBER_OF_BYTES_SENT.add(total_length as i64);
+                NUMBER_OF_WRITE_COUNT.inc();
                 let send_result = if enable_pacing {
                     send_with_pacing(
                         &socket,
@@ -516,6 +557,7 @@ fn create_client_task(
             }
 
             if connection.is_closed() {
+                NUMBER_OF_CONNECTION_CLOSED.inc();
                 if let Some(e) = connection.peer_error() {
                     log::error!("peer error : {e:?} ");
                 }
@@ -534,6 +576,7 @@ fn create_client_task(
         }
         quit.store(true, std::sync::atomic::Ordering::Relaxed);
     });
+    NUMBER_OF_CLIENTS.dec();
 }
 
 fn create_dispatching_thread(
@@ -564,6 +607,7 @@ fn create_dispatching_thread(
                             // do not sent init messages
                             continue;
                         }
+                        NUMBER_OF_ACCOUNT_UPDATES.inc();
                         let slot_identifier = SlotIdentifier { slot };
                         let geyser_account = Account::new(
                             account.pubkey,
@@ -575,19 +619,29 @@ fn create_dispatching_thread(
 
                         (Message::AccountMsg(geyser_account), 3)
                     }
-                    ChannelMessage::Slot(slot, parent, commitment_config) => (
-                        Message::SlotMsg(SlotMeta {
-                            slot,
-                            parent,
-                            commitment_config,
-                        }),
-                        1,
-                    ),
-                    ChannelMessage::BlockMeta(block_meta) => (Message::BlockMetaMsg(block_meta), 2),
+                    ChannelMessage::Slot(slot, parent, commitment_config) => {
+                        NUMBER_OF_SLOT_UPDATES.inc();
+                        (
+                            Message::SlotMsg(SlotMeta {
+                                slot,
+                                parent,
+                                commitment_config,
+                            }),
+                            1,
+                        )
+                    }
+                    ChannelMessage::BlockMeta(block_meta) => {
+                        NUMBER_OF_BLOCKMETA_UPDATE.inc();
+                        (Message::BlockMetaMsg(block_meta), 2)
+                    }
                     ChannelMessage::Transaction(transaction) => {
+                        NUMBER_OF_TRANSACTION_UPDATES.inc();
                         (Message::TransactionMsg(transaction), 3)
                     }
-                    ChannelMessage::Block(block) => (Message::BlockMsg(block), 2),
+                    ChannelMessage::Block(block) => {
+                        NUMBER_OF_BLOCK_UPDATES.inc();
+                        (Message::BlockMsg(block), 2)
+                    }
                 };
                 let binary =
                     bincode::serialize(&message).expect("Message should be serializable in binary");

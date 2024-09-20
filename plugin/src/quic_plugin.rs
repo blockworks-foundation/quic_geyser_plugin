@@ -1,7 +1,3 @@
-use solana_geyser_plugin_interface::geyser_plugin_interface::{
-    GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
-    ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
-};
 use quic_geyser_block_builder::block_builder::start_block_building_thread;
 use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
@@ -14,6 +10,10 @@ use quic_geyser_common::{
 };
 use quic_geyser_server::quic_server::QuicServer;
 use quic_geyser_snapshot::snapshot_creator::SnapshotCreator;
+use solana_geyser_plugin_interface::geyser_plugin_interface::{
+    GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
+    ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
+};
 use solana_sdk::{
     account::Account, clock::Slot, commitment_config::CommitmentConfig, message::v0::Message,
     pubkey::Pubkey,
