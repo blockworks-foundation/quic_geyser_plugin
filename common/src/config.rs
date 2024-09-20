@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 
 use serde::{Deserialize, Serialize};
 
@@ -38,7 +38,7 @@ pub struct ConfigQuicPlugin {
 
 impl ConfigQuicPlugin {
     fn default_address() -> SocketAddr {
-        SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 10800))
+        SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 10800, 0, 0))
     }
 
     fn default_number_of_retries() -> u64 {
