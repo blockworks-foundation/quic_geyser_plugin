@@ -8,7 +8,6 @@ use quic_geyser_common::{
     },
 };
 use quic_geyser_server::quic_server::QuicServer;
-use quic_geyser_snapshot::snapshot_creator::SnapshotCreator;
 use solana_geyser_plugin_interface::geyser_plugin_interface::{
     GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions, ReplicaBlockInfoVersions,
     ReplicaEntryInfoVersions, ReplicaTransactionInfoVersions, Result as PluginResult, SlotStatus,
@@ -17,13 +16,11 @@ use solana_sdk::{
     account::Account, clock::Slot, commitment_config::CommitmentConfig, message::v0::Message,
     pubkey::Pubkey,
 };
-use tokio::runtime::Runtime;
 
-use crate::{config::Config, rpc_server::RpcServerImpl};
+use crate::config::Config;
 
 #[derive(Debug, Default)]
 pub struct QuicGeyserPlugin {
-    runtime: Option<Runtime>,
     quic_server: Option<QuicServer>,
     block_builder_channel: Option<std::sync::mpsc::Sender<ChannelMessage>>,
     rpc_server_message_channel: Option<std::sync::mpsc::Sender<ChannelMessage>>,
@@ -34,7 +31,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
         "quic_geyser_plugin"
     }
 
-    fn on_load(&mut self, config_file: &str, _is_reload: bool) -> PluginResult<()> {
+    fn on_load(&mut self, config_file: &str) -> PluginResult<()> {
         log::info!("loading quic_geyser plugin");
         let config = Config::load_from_file(config_file)?;
         let compression_params = config.quic_plugin.compression_parameters.clone();
@@ -59,28 +56,6 @@ impl GeyserPlugin for QuicGeyserPlugin {
             // self.block_builder_channel = Some(sx);
         }
 
-        if config.rpc_server.enable {
-            log::info!("Creating runtime");
-            let runtime =
-                Runtime::new().map_err(|error| GeyserPluginError::Custom(Box::new(error)))?;
-            let port = config.rpc_server.port;
-
-            let (server_sx, server_rx) = std::sync::mpsc::channel();
-            self.rpc_server_message_channel = Some(server_sx);
-
-            runtime.block_on(async move {
-                let snapshot_creator = SnapshotCreator::new(snapshot_config, compression_params);
-                log::info!("geyser plugin Start listening");
-                snapshot_creator.start_listening(server_rx);
-
-                log::info!("start serving");
-                let rpc_server = RpcServerImpl::new(snapshot_creator);
-                if let Err(e) = RpcServerImpl::start_serving(rpc_server, port).await {
-                    log::error!("Error starting http server: {e:?}");
-                }
-            });
-            self.runtime = Some(runtime);
-        }
         self.quic_server = Some(quic_server);
         log::info!("geyser plugin loaded ok ()");
         Ok(())
