@@ -81,7 +81,7 @@ pub enum AccountFilterType {
 pub struct AccountFilter {
     pub owner: Option<Pubkey>,
     pub accounts: Option<HashSet<Pubkey>>,
-    pub filter: Option<AccountFilterType>,
+    pub filters: Option<Vec<AccountFilterType>>,
 }
 
 impl AccountFilter {
@@ -95,8 +95,8 @@ impl AccountFilter {
                     // to do move the filtering somewhere else because here we need to decode the account data
                     // but cannot be avoided for now, this will lag the client is abusing this filter
                     // lagged clients will be dropped
-                    if let Some(filter) = &self.filter {
-                        match filter {
+                    if let Some(filters) = &self.filters {
+                        return filters.iter().all(|filter| match filter {
                             AccountFilterType::Datasize(data_length) => {
                                 return account.account.data.len() == (*data_length as usize)
                             }
@@ -113,7 +113,7 @@ impl AccountFilter {
                                 return account.account.data[offset..offset + bytes.len()]
                                     == bytes[..];
                             }
-                        }
+                        });
                     }
                     return true;
                 }
@@ -141,6 +141,8 @@ mod tests {
     fn test_accounts_filter() {
         let owner = Pubkey::new_unique();
 
+        let owner_2 = Pubkey::new_unique();
+
         let solana_account_1 = SolanaAccount {
             lamports: 1,
             data: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
@@ -158,7 +160,14 @@ mod tests {
         let solana_account_3 = SolanaAccount {
             lamports: 3,
             data: vec![11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
-            owner: Pubkey::new_unique(),
+            owner: owner_2,
+            executable: false,
+            rent_epoch: 100,
+        };
+        let solana_account_4 = SolanaAccount {
+            lamports: 3,
+            data: vec![11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
+            owner: owner_2,
             executable: false,
             rent_epoch: 100,
         };
@@ -202,62 +211,124 @@ mod tests {
             0,
             false,
         );
+        let msg_4 = ChannelMessage::Account(
+            AccountData {
+                pubkey: Pubkey::new_unique(),
+                account: solana_account_4.clone(),
+                write_version: 0,
+            },
+            0,
+            false,
+        );
 
         let f1 = AccountFilter {
             owner: Some(owner),
             accounts: None,
-            filter: None,
+            filters: None,
         };
 
         assert_eq!(f1.allows(&msg_0), false);
         assert_eq!(f1.allows(&msg_1), true);
         assert_eq!(f1.allows(&msg_2), true);
         assert_eq!(f1.allows(&msg_3), false);
+        assert_eq!(f1.allows(&msg_4), false);
 
         let f2 = AccountFilter {
             owner: Some(owner),
             accounts: None,
-            filter: Some(AccountFilterType::Datasize(9)),
+            filters: Some(vec![AccountFilterType::Datasize(9)]),
         };
         assert_eq!(f2.allows(&msg_0), false);
         assert_eq!(f2.allows(&msg_1), false);
         assert_eq!(f2.allows(&msg_2), false);
         assert_eq!(f2.allows(&msg_3), false);
+        assert_eq!(f2.allows(&msg_4), false);
 
         let f3 = AccountFilter {
             owner: Some(owner),
             accounts: None,
-            filter: Some(AccountFilterType::Datasize(10)),
+            filters: Some(vec![AccountFilterType::Datasize(10)]),
         };
         assert_eq!(f3.allows(&msg_0), false);
         assert_eq!(f3.allows(&msg_1), true);
         assert_eq!(f3.allows(&msg_2), true);
         assert_eq!(f3.allows(&msg_3), false);
+        assert_eq!(f3.allows(&msg_4), false);
 
         let f4: AccountFilter = AccountFilter {
             owner: Some(owner),
             accounts: None,
-            filter: Some(AccountFilterType::Memcmp(MemcmpFilter {
+            filters: Some(vec![AccountFilterType::Memcmp(MemcmpFilter {
                 offset: 2,
                 data: crate::filters::MemcmpFilterData::Bytes(vec![3, 4, 5]),
-            })),
+            })]),
         };
         assert_eq!(f4.allows(&msg_0), false);
         assert_eq!(f4.allows(&msg_1), true);
         assert_eq!(f4.allows(&msg_2), false);
         assert_eq!(f4.allows(&msg_3), false);
+        assert_eq!(f4.allows(&msg_4), false);
 
         let f5: AccountFilter = AccountFilter {
             owner: Some(owner),
             accounts: None,
-            filter: Some(AccountFilterType::Memcmp(MemcmpFilter {
+            filters: Some(vec![AccountFilterType::Memcmp(MemcmpFilter {
                 offset: 2,
                 data: crate::filters::MemcmpFilterData::Bytes(vec![13, 14, 15]),
-            })),
+            })]),
         };
         assert_eq!(f5.allows(&msg_0), false);
         assert_eq!(f5.allows(&msg_1), false);
         assert_eq!(f5.allows(&msg_2), true);
         assert_eq!(f5.allows(&msg_3), false);
+        assert_eq!(f5.allows(&msg_4), false);
+
+        let f6: AccountFilter = AccountFilter {
+            owner: Some(owner_2),
+            accounts: None,
+            filters: Some(vec![AccountFilterType::Memcmp(MemcmpFilter {
+                offset: 2,
+                data: crate::filters::MemcmpFilterData::Bytes(vec![13, 14, 15]),
+            })]),
+        };
+        assert_eq!(f6.allows(&msg_0), false);
+        assert_eq!(f6.allows(&msg_1), false);
+        assert_eq!(f6.allows(&msg_2), false);
+        assert_eq!(f6.allows(&msg_3), true);
+        assert_eq!(f6.allows(&msg_4), true);
+
+        let f7: AccountFilter = AccountFilter {
+            owner: Some(owner_2),
+            accounts: None,
+            filters: Some(vec![
+                AccountFilterType::Datasize(10),
+                AccountFilterType::Memcmp(MemcmpFilter {
+                    offset: 2,
+                    data: crate::filters::MemcmpFilterData::Bytes(vec![13, 14, 15]),
+                }),
+            ]),
+        };
+        assert_eq!(f7.allows(&msg_0), false);
+        assert_eq!(f7.allows(&msg_1), false);
+        assert_eq!(f7.allows(&msg_2), false);
+        assert_eq!(f7.allows(&msg_3), true);
+        assert_eq!(f7.allows(&msg_4), false);
+
+        let f8: AccountFilter = AccountFilter {
+            owner: Some(owner_2),
+            accounts: None,
+            filters: Some(vec![
+                AccountFilterType::Datasize(11),
+                AccountFilterType::Memcmp(MemcmpFilter {
+                    offset: 2,
+                    data: crate::filters::MemcmpFilterData::Bytes(vec![13, 14, 15]),
+                }),
+            ]),
+        };
+        assert_eq!(f8.allows(&msg_0), false);
+        assert_eq!(f8.allows(&msg_1), false);
+        assert_eq!(f8.allows(&msg_2), false);
+        assert_eq!(f8.allows(&msg_3), false);
+        assert_eq!(f8.allows(&msg_4), true);
     }
 }
