@@ -11,7 +11,7 @@ pub fn send_message(
     connection: &mut Connection,
     partial_responses: &mut PartialResponses,
     stream_id: u64,
-    mut message: Vec<u8>,
+    message: Vec<u8>,
 ) -> std::result::Result<(), quiche::Error> {
     let written = match connection.stream_send(stream_id, &message, true) {
         Ok(v) => v,
@@ -23,7 +23,6 @@ pub fn send_message(
     log::trace!("dispatched {} on stream id : {}", written, stream_id);
 
     if written < message.len() {
-        message.drain(..written);
         let response = PartialResponse {
             binary: message,
             written,
@@ -48,9 +47,8 @@ pub fn handle_writable(
             return Ok(());
         }
     };
-    let body = &resp.binary;
 
-    let written = match conn.stream_send(stream_id, body, true) {
+    let written = match conn.stream_send(stream_id, &resp.binary[resp.written..], true) {
         Ok(v) => v,
         Err(quiche::Error::Done) => {
             //  above
@@ -71,17 +69,9 @@ pub fn handle_writable(
         return Ok(());
     }
 
-    if written == resp.binary.len() {
+    if resp.written + written == resp.binary.len() {
         partial_responses.remove(&stream_id);
-        // match conn.stream_send(stream_id, b"", true) {
-        //     Ok(_) => {}
-        //     Err(quiche::Error::Done) => {}
-        //     Err(e) => {
-        //         log::error!("{} fin stream failed {:?}", conn.trace_id(), e);
-        //     }
-        // }
     } else {
-        resp.binary.drain(0..written);
         resp.written += written;
     }
     Ok(())
