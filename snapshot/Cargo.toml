@@ -20,6 +20,6 @@ lz4 = { workspace = true }
 bincode = { workspace = true }
 tokio = {workspace = true}
 
-lite-account-manager-common = { workspace = true }
-lite-account-storage = { workspace = true }
+# lite-account-manager-common = { workspace = true }
+# lite-account-storage = { workspace = true }
 lite-token-account-storage = { workspace = true }

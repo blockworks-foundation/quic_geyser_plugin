@@ -11,7 +11,7 @@ members = [
     "examples/tester-server",
     "proxy",
     "block-builder",
-    "snapshot",
+    # "snapshot",
 ]
 
 [workspace.package]
@@ -22,14 +22,14 @@ license = "AGPL"
 edition = "2021"
 
 [workspace.dependencies]
-solana-sdk = "~1.18.16"
-solana-program = "~1.18.16"
-solana-transaction-status = "~1.18.16"
-solana-logger = "~1.18.16"
-solana-rpc-client = "~1.18.16"
-solana-rpc-client-api = "~1.18.16"
-solana-account-decoder = "~1.18.16"
-solana-geyser-plugin-interface = "=1.18.16"
+solana-sdk = "~1.17.29"
+solana-program = "~1.17.29"
+solana-transaction-status = "~1.17.29"
+solana-logger = "~1.17.29"
+solana-rpc-client = "~1.17.29"
+solana-rpc-client-api = "~1.17.29"
+solana-account-decoder = "~1.17.29"
+solana-geyser-plugin-interface = "=1.17.29"
 
 itertools = "0.10.5"
 serde = "1.0.201"
@@ -71,12 +71,12 @@ quic-geyser-server = {path = "server", version="0.1.5"}
 quic-geyser-quiche-utils = {path = "quiche", version = "0.1.5"}
 quic-geyser-blocking-client = {path = "blocking_client", version = "0.1.5"}
 quic-geyser-block-builder = {path = "block-builder", version = "0.1.5"}
-quic-geyser-snapshot = {path = "snapshot", version = "0.1.5"}
+# quic-geyser-snapshot = {path = "snapshot", version = "0.1.5"}
 
 # solana lite account manager for snapshot creation
-lite-account-manager-common = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", tag = "v0.1.0" }
-lite-account-storage = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", tag = "v0.1.0" }
-lite-token-account-storage = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", tag = "v0.1.0" }
+# lite-account-manager-common = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", tag = "v0.1.0" }
+# lite-account-storage = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", tag = "v0.1.0" }
+# lite-token-account-storage = { git = "https://github.com/blockworks-foundation/solana-lite-account-manager.git", tag = "v0.1.0" }
 
 [profile.release]
 debug = true
