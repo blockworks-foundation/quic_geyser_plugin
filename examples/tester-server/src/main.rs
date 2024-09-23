@@ -48,8 +48,9 @@ pub fn main() {
     let mut rand = thread_rng();
     let datas = (0..args.number_of_random_accounts)
         .map(|_| {
-            let size = rand.gen_range(args.min_account_data_size..args.max_account_data_size);
-            (0..size as usize).map(|_| rand.gen::<u8>()).collect_vec()
+            let size: usize =
+                rand.gen_range(args.min_account_data_size..args.max_account_data_size);
+            (0..size).map(|_| rand.gen::<u8>()).collect_vec()
         })
         .collect_vec();
     loop {

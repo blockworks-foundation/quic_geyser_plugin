@@ -131,8 +131,12 @@ fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>
 
     sleep(Duration::from_secs(1));
     let mut filters = vec![Filter::Slot, Filter::BlockMeta];
-    filters.push(Filter::BlockAll);
-    filters.push(Filter::AccountsAll);
+    if args.blocks_instead_of_accounts {
+        filters.push(Filter::BlockAll);
+    } else {
+        filters.push(Filter::AccountsAll);
+    }
+
     println!("Subscribing");
     client.subscribe(filters).unwrap();
     println!("Subscribed");
@@ -240,8 +244,11 @@ async fn non_blocking(args: Args, client_stats: ClientStats, break_thread: Arc<A
 
     tokio::time::sleep(Duration::from_secs(1)).await;
     let mut filters = vec![Filter::Slot, Filter::BlockMeta];
-    filters.push(Filter::BlockAll);
-    filters.push(Filter::AccountsAll);
+    if args.blocks_instead_of_accounts {
+        filters.push(Filter::BlockAll);
+    } else {
+        filters.push(Filter::AccountsAll);
+    }
 
     println!("Subscribing");
     client.subscribe(filters).await.unwrap();
