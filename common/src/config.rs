@@ -12,6 +12,10 @@ use crate::{
     },
 };
 
+pub fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigQuicPlugin {
@@ -26,13 +30,13 @@ pub struct ConfigQuicPlugin {
     pub compression_parameters: CompressionParameters,
     #[serde(default = "ConfigQuicPlugin::default_number_of_retries")]
     pub number_of_retries: u64,
-    #[serde(default = "ConfigQuicPlugin::default_allow_accounts")]
+    #[serde(default = "default_true")]
     pub allow_accounts: bool,
     #[serde(default)]
     pub allow_accounts_at_startup: bool,
-    #[serde(default = "ConfigQuicPlugin::default_enable_block_builder")]
+    #[serde(default = "default_true")]
     pub enable_block_builder: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub build_blocks_with_accounts: bool,
 }
 
@@ -47,14 +51,6 @@ impl ConfigQuicPlugin {
 
     fn default_log_level() -> String {
         "info".to_string()
-    }
-
-    fn default_allow_accounts() -> bool {
-        true
-    }
-
-    fn default_enable_block_builder() -> bool {
-        true
     }
 }
 
