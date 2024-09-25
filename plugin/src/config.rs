@@ -41,7 +41,7 @@ pub struct RpcServiceConfig {
 
 impl RpcServiceConfig {
     pub fn default_rpc_service_enable() -> bool {
-        true
+        false
     }
     pub fn default_port() -> u16 {
         10801
