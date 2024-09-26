@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use ring::rand::SecureRandom;
 
@@ -163,8 +163,8 @@ pub fn generate_cid_and_reset_token<T: SecureRandom>(
 }
 
 pub struct PartialResponse {
-    pub binary: Vec<u8>,
+    pub message: Arc<Vec<u8>>,
     pub written: usize,
 }
 
-pub type PartialResponses = HashMap<u64, PartialResponse>;
+pub type PartialResponses = BTreeMap<u64, PartialResponse>;

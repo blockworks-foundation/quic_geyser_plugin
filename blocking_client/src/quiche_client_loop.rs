@@ -145,7 +145,7 @@ pub fn create_quiche_client_thread(
         let mut read_streams = ReadStreams::new();
         let mut connected = false;
         let mut instance = Instant::now();
-        let ping_message = bincode::serialize(&Message::Ping).unwrap();
+        let ping_message = Arc::new(bincode::serialize(&Message::Ping).unwrap());
 
         // Generate a random source connection ID for the connection.
         let rng = SystemRandom::new();
@@ -232,8 +232,10 @@ pub fn create_quiche_client_thread(
                         Ok(message_to_send) => {
                             current_stream_id =
                                 get_next_unidi(current_stream_id, false, maximum_streams);
-                            let binary = bincode::serialize(&message_to_send)
-                                .expect("Message should be serializable");
+                            let binary = Arc::new(
+                                bincode::serialize(&message_to_send)
+                                    .expect("Message should be serializable"),
+                            );
                             if let Err(e) = send_message(
                                 &mut connection,
                                 &mut partial_responses,

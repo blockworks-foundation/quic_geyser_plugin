@@ -75,7 +75,7 @@ use crate::configure_server::configure_server;
 
 enum InternalMessage {
     Packet(quiche::RecvInfo, Vec<u8>),
-    ClientMessage(Vec<u8>, u8),
+    ClientMessage(Arc<Vec<u8>>, u8),
 }
 
 struct DispatchingData {
@@ -643,8 +643,9 @@ fn create_dispatching_thread(
                         (Message::BlockMsg(block), 2)
                     }
                 };
-                let binary =
-                    bincode::serialize(&message).expect("Message should be serializable in binary");
+                let binary = Arc::new(
+                    bincode::serialize(&message).expect("Message should be serializable in binary"),
+                );
                 for id in dispatching_connections.iter() {
                     let data = dispatching_connections_lk.get(id).unwrap();
                     if data
