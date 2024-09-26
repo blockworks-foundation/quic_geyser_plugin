@@ -51,6 +51,7 @@ pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> En
     transport_config.max_concurrent_uni_streams(VarInt::from(
         connection_parameters.max_number_of_streams as u32,
     ));
+    transport_config.enable_segmentation_offload(connection_parameters.enable_gso);
 
     transport_config.crypto_buffer_size(64 * 1024);
     transport_config
@@ -310,6 +311,7 @@ mod tests {
                 timeout_in_seconds: 10,
                 max_ack_delay: 25,
                 ack_exponent: 3,
+                enable_gso: false,
             },
         )
         .await

@@ -165,6 +165,7 @@ mod tests {
                 timeout_in_seconds: 10,
                 max_ack_delay: 25,
                 ack_exponent: 3,
+                enable_gso: false,
             },
         )
         .unwrap();

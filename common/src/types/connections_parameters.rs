@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::defaults::{
-    DEFAULT_ACK_EXPONENT, DEFAULT_CONNECTION_TIMEOUT, DEFAULT_MAX_ACK_DELAY,
+    DEFAULT_ACK_EXPONENT, DEFAULT_CONNECTION_TIMEOUT, DEFAULT_ENABLE_GSO, DEFAULT_MAX_ACK_DELAY,
     DEFAULT_MAX_RECIEVE_WINDOW_SIZE, DEFAULT_MAX_STREAMS,
 };
 
@@ -13,6 +13,7 @@ pub struct ConnectionParameters {
     pub timeout_in_seconds: u64,
     pub max_ack_delay: u64,
     pub ack_exponent: u64,
+    pub enable_gso: bool,
 }
 
 impl Default for ConnectionParameters {
@@ -23,6 +24,7 @@ impl Default for ConnectionParameters {
             timeout_in_seconds: DEFAULT_CONNECTION_TIMEOUT,
             max_ack_delay: DEFAULT_MAX_ACK_DELAY,
             ack_exponent: DEFAULT_ACK_EXPONENT,
+            enable_gso: DEFAULT_ENABLE_GSO,
         }
     }
 }

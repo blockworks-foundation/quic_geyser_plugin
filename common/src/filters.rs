@@ -98,20 +98,21 @@ impl AccountFilter {
                     if let Some(filters) = &self.filters {
                         return filters.iter().all(|filter| match filter {
                             AccountFilterType::Datasize(data_length) => {
-                                return account.account.data.len() == (*data_length as usize)
+                                account.account.data.len() == *data_length as usize
                             }
                             AccountFilterType::Memcmp(memcmp) => {
                                 let offset = memcmp.offset as usize;
                                 if offset > account.account.data.len() {
-                                    return false;
+                                    false
+                                } else {
+                                    let MemcmpFilterData::Bytes(bytes) = &memcmp.data;
+                                    if account.account.data[offset..].len() < bytes.len() {
+                                        false
+                                    } else {
+                                        account.account.data[offset..offset + bytes.len()]
+                                            == bytes[..]
+                                    }
                                 }
-                                let MemcmpFilterData::Bytes(bytes) = &memcmp.data;
-
-                                if account.account.data[offset..].len() < bytes.len() {
-                                    return false;
-                                }
-                                return account.account.data[offset..offset + bytes.len()]
-                                    == bytes[..];
                             }
                         });
                     }
