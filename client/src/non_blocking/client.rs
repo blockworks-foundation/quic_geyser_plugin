@@ -69,7 +69,8 @@ pub async fn recv_message(
     mut recv_stream: RecvStream,
     timeout_in_seconds: u64,
 ) -> anyhow::Result<Message> {
-    let mut buffer: Vec<u8> = vec![];
+    let mut buffer = Vec::<u8>::new();
+    buffer.reserve(128 * 1024); // reserve 128 kbs for each message
 
     while let Some(data) = tokio::time::timeout(
         Duration::from_secs(timeout_in_seconds),
