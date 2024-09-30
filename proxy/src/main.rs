@@ -1,5 +1,3 @@
-use std::{net::SocketAddr, str::FromStr};
-
 use clap::Parser;
 use cli::Args;
 use quic_geyser_blocking_client::client::Client;
@@ -7,6 +5,7 @@ use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
     config::{CompressionParameters, ConfigQuicPlugin, QuicParameters},
     filters::Filter,
+    net::parse_host_port,
     types::connections_parameters::ConnectionParameters,
 };
 use quic_geyser_server::quic_server::QuicServer;
@@ -39,7 +38,7 @@ pub fn main() -> anyhow::Result<()> {
     ])?;
 
     let quic_config = ConfigQuicPlugin {
-        address: SocketAddr::from_str(format!("0.0.0.0:{}", args.port).as_str()).unwrap(),
+        address: parse_host_port(format!("[::]:{}", args.port).as_str()).unwrap(),
         log_level: "info".to_string(),
         quic_parameters: QuicParameters {
             max_number_of_streams_per_client: args.max_number_of_streams_per_client,

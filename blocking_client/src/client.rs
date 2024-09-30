@@ -2,6 +2,7 @@ use crate::configure_client::configure_client;
 use crate::quiche_client_loop::client_loop;
 use quic_geyser_common::filters::Filter;
 use quic_geyser_common::message::Message;
+use quic_geyser_common::net::parse_host_port;
 use quic_geyser_common::types::connections_parameters::ConnectionParameters;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicBool;
@@ -24,10 +25,9 @@ impl Client {
             connection_parameters.max_ack_delay,
             connection_parameters.ack_exponent,
         )?;
-        let server_address: SocketAddr = server_address.parse()?;
-        let socket_addr: SocketAddr = "0.0.0.0:0"
-            .parse()
-            .expect("Socket address should be returned");
+        let server_address: SocketAddr = parse_host_port(&server_address)?;
+        let socket_addr: SocketAddr =
+            parse_host_port("[::]:0").expect("Socket address should be returned");
         let is_connected = Arc::new(AtomicBool::new(false));
         let (filters_sender, rx_sent_queue) = std::sync::mpsc::channel();
         let (sx_recv_queue, client_rx_queue) = std::sync::mpsc::channel();
@@ -75,6 +75,7 @@ mod tests {
         config::{CompressionParameters, ConfigQuicPlugin, QuicParameters},
         filters::Filter,
         message::Message,
+        net::parse_host_port,
         types::{
             account::Account, connections_parameters::ConnectionParameters,
             slot_identifier::SlotIdentifier,
@@ -103,8 +104,8 @@ mod tests {
 
     #[test]
     pub fn test_client() {
-        let server_sock: SocketAddr = "0.0.0.0:30000".parse().unwrap();
-        let url = format!("127.0.0.1:{}", server_sock.port());
+        let server_sock: SocketAddr = parse_host_port("[::]:30000").unwrap();
+        let url = format!("::1:{}", server_sock.port());
 
         let msg_acc_1 = Message::AccountMsg(get_account_for_test(0, 2));
         let msg_acc_2 = Message::AccountMsg(get_account_for_test(1, 20));

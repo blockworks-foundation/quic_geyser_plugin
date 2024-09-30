@@ -300,8 +300,7 @@ pub fn create_quiche_client_thread(
 #[cfg(test)]
 mod tests {
     use std::{
-        net::{IpAddr, Ipv4Addr, SocketAddr},
-        str::FromStr,
+        net::{IpAddr, Ipv6Addr, SocketAddr},
         sync::{atomic::AtomicBool, mpsc, Arc},
         thread::sleep,
         time::Duration,
@@ -317,6 +316,7 @@ mod tests {
         config::QuicParameters,
         filters::Filter,
         message::Message,
+        net::parse_host_port,
         types::block_meta::SlotMeta,
     };
 
@@ -328,7 +328,7 @@ mod tests {
     fn test_send_and_recieve_of_large_account_with_client_loop() {
         tracing_subscriber::fmt::init();
         // Setup the event loop.
-        let socket_addr = SocketAddr::from_str("0.0.0.0:10900").unwrap();
+        let socket_addr = parse_host_port("[::]:10900").unwrap();
 
         let port = 10900;
         let maximum_concurrent_streams = 100;
@@ -420,14 +420,14 @@ mod tests {
         });
 
         // client loop
-        let server_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+        let server_addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), port);
         let (client_sx_queue, rx_sent_queue) = mpsc::channel();
         let (sx_recv_queue, client_rx_queue) = mpsc::channel();
 
         let _client_loop_jh = std::thread::spawn(move || {
             let client_config =
                 configure_client(maximum_concurrent_streams, 20_000_000, 1, 25, 3).unwrap();
-            let socket_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+            let socket_addr: SocketAddr = parse_host_port("[::]:0").unwrap();
             let is_connected = Arc::new(AtomicBool::new(false));
             if let Err(e) = client_loop(
                 client_config,

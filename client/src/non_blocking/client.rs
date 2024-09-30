@@ -4,19 +4,20 @@ use quic_geyser_common::defaults::DEFAULT_MAX_RECIEVE_WINDOW_SIZE;
 use quic_geyser_common::defaults::MAX_PAYLOAD_BUFFER;
 use quic_geyser_common::filters::Filter;
 use quic_geyser_common::message::Message;
+use quic_geyser_common::net::parse_host_port;
 use quic_geyser_common::types::connections_parameters::ConnectionParameters;
 use quinn::{
     ClientConfig, Connection, ConnectionError, Endpoint, EndpointConfig, IdleTimeout, RecvStream,
     SendStream, TokioRuntime, TransportConfig, VarInt,
 };
-use std::net::{SocketAddr, UdpSocket};
-use std::str::FromStr;
+use std::net::UdpSocket;
 use std::sync::Arc;
 use std::time::Duration;
 
 pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> Endpoint {
     let mut endpoint = {
-        let client_socket = UdpSocket::bind("0.0.0.0:0").expect("Client socket should be binded");
+        let client_socket = UdpSocket::bind(parse_host_port("[::]:0").unwrap())
+            .expect("Client socket should be binded");
         let mut config = EndpointConfig::default();
         config
             .max_udp_payload_size(MAX_PAYLOAD_BUFFER.try_into().unwrap())
@@ -105,7 +106,7 @@ impl Client {
     )> {
         let timeout: u64 = connection_parameters.timeout_in_seconds;
         let endpoint = create_client_endpoint(connection_parameters);
-        let socket_addr = SocketAddr::from_str(&server_address)?;
+        let socket_addr = parse_host_port(&server_address)?;
         let connecting = endpoint.connect(socket_addr, "quic_geyser_client")?;
 
         let (message_sx_queue, message_rx_queue) =
@@ -118,6 +119,11 @@ impl Client {
                 // limit client to respond to 128k streams in parallel
                 let semaphore = Arc::new(tokio::sync::Semaphore::new(128 * 1024));
                 loop {
+                    // sender is closed / no messages to send
+                    if message_sx_queue.is_closed() {
+                        bail!("quic client stopped, sender closed");
+                    }
+
                     let permit = semaphore.clone().acquire_owned().await.unwrap();
                     let stream: Result<RecvStream, ConnectionError> = connection.accept_uni().await;
                     match stream {
@@ -130,7 +136,7 @@ impl Client {
                                 match message {
                                     Ok(message) => {
                                         if let Err(e) = sender.send(message) {
-                                            log::error!("Message sent error : {:?}", e)
+                                            log::error!("Message sent error : {:?}", e);
                                         }
                                     }
                                     Err(e) => {
@@ -219,6 +225,7 @@ mod tests {
         config::{CompressionParameters, ConfigQuicPlugin, QuicParameters},
         filters::Filter,
         message::Message,
+        net::parse_host_port,
         types::{
             account::Account, connections_parameters::ConnectionParameters,
             slot_identifier::SlotIdentifier,
@@ -247,7 +254,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn test_non_blocking_client() {
-        let server_sock: SocketAddr = "0.0.0.0:20000".parse().unwrap();
+        let server_sock: SocketAddr = parse_host_port("[::]:20000").unwrap();
         let url = format!("127.0.0.1:{}", server_sock.port());
 
         let msg_acc_1 = Message::AccountMsg(get_account_for_test(0, 2));

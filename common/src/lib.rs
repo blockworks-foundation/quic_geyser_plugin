@@ -4,5 +4,6 @@ pub mod config;
 pub mod defaults;
 pub mod filters;
 pub mod message;
+pub mod net;
 pub mod plugin_error;
 pub mod types;

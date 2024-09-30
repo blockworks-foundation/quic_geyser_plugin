@@ -1,19 +1,15 @@
-use std::{
-    net::SocketAddr,
-    str::FromStr,
-    time::{Duration, Instant},
-};
-
 use clap::Parser;
 use cli::Args;
 use itertools::Itertools;
 use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
     config::{CompressionParameters, ConfigQuicPlugin, QuicParameters},
+    net::parse_host_port,
 };
 use quic_geyser_server::quic_server::QuicServer;
 use rand::{thread_rng, Rng};
 use solana_sdk::{account::Account, commitment_config::CommitmentConfig, pubkey::Pubkey};
+use std::time::{Duration, Instant};
 
 pub mod cli;
 
@@ -22,7 +18,7 @@ pub fn main() {
     let args = Args::parse();
 
     let config = ConfigQuicPlugin {
-        address: SocketAddr::from_str(format!("0.0.0.0:{}", args.port).as_str()).unwrap(),
+        address: parse_host_port(format!("[::]:{}", args.port).as_str()).unwrap(),
         log_level: "info".to_string(),
         quic_parameters: QuicParameters {
             max_number_of_streams_per_client: args.number_of_streams,
