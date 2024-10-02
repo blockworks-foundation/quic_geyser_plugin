@@ -1,13 +1,13 @@
 use std::{
     collections::HashMap,
-    net::SocketAddr,
-    net::UdpSocket,
+    net::{SocketAddr, UdpSocket},
     sync::{
         atomic::AtomicBool,
         mpsc::{self, Sender},
         Arc, Mutex, RwLock,
     },
     time::{Duration, Instant},
+    u64,
 };
 
 use anyhow::bail;
@@ -32,7 +32,7 @@ use quic_geyser_quiche_utils::{
     quiche_sender::{handle_writable, send_message},
     quiche_utils::{
         generate_cid_and_reset_token, get_next_unidi, handle_path_events, mint_token,
-        validate_token, PartialResponses,
+        validate_token, StreamSenderMap,
     },
 };
 
@@ -92,7 +92,7 @@ pub fn server_loop(
     compression_type: CompressionType,
     stop_laggy_client: bool,
 ) -> anyhow::Result<()> {
-    let maximum_concurrent_streams_id = u64::MAX;
+    let maximum_concurrent_streams = 32;
     let mut config = configure_server(quic_params)?;
 
     let socket = Arc::new(UdpSocket::bind(socket_addr)?);
@@ -257,7 +257,7 @@ pub fn server_loop(
                 clients_by_id.clone(),
                 client_message_rx,
                 filters.clone(),
-                maximum_concurrent_streams_id,
+                maximum_concurrent_streams,
                 stop_laggy_client,
                 quic_params.incremental_priority,
                 rng.clone(),
@@ -317,7 +317,7 @@ fn create_client_task(
     client_id_by_scid: Arc<Mutex<HashMap<ConnectionId<'static>, u64>>>,
     receiver: mpsc::Receiver<InternalMessage>,
     filters: Arc<RwLock<Vec<Filter>>>,
-    maximum_concurrent_streams_id: u64,
+    maximum_concurrent_streams: usize,
     stop_laggy_client: bool,
     incremental_priority: bool,
     rng: SystemRandom,
@@ -325,9 +325,10 @@ fn create_client_task(
     enable_gso: bool,
 ) {
     std::thread::spawn(move || {
-        let mut partial_responses = PartialResponses::new();
+        let mut stream_sender_map = StreamSenderMap::new();
         let mut read_streams = ReadStreams::new();
-        let mut next_stream: u64 = 3;
+        let first_stream_id = get_next_unidi(3, true, u64::MAX);
+        let mut next_stream: u64 = first_stream_id;
         let mut connection = connection;
         let mut instance = Instant::now();
         let mut closed = false;
@@ -365,37 +366,49 @@ fn create_client_task(
                     }
                     InternalMessage::ClientMessage(message, priority) => {
                         // handle message from client
-                        let stream_id = next_stream;
-                        next_stream =
-                            get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
-
-                        let close = if let Err(e) =
-                            connection.stream_priority(stream_id, priority, incremental_priority)
-                        {
-                            if !closed {
-                                log::error!(
-                                    "Unable to set priority for the stream {}, error {}",
-                                    stream_id,
-                                    e
-                                );
+                        // create new stream is there are still streams to be used or else use the existing one with most capacity
+                        let stream_id = if stream_sender_map.len() < maximum_concurrent_streams {
+                            let stream_id_to_use = next_stream;
+                            next_stream = get_next_unidi(stream_id_to_use, true, u64::MAX);
+                            if stream_id_to_use == first_stream_id {
+                                // set high priority to first stream
+                                connection
+                                    .stream_priority(stream_id_to_use, 0, incremental_priority)
+                                    .unwrap();
+                            } else {
+                                connection
+                                    .stream_priority(stream_id_to_use, 1, incremental_priority)
+                                    .unwrap();
                             }
-                            true
+                            stream_id_to_use
                         } else {
-                            match send_message(
-                                &mut connection,
-                                &mut partial_responses,
-                                stream_id,
-                                message,
-                            ) {
-                                Ok(_) => {
-                                    // do nothing
-                                    false
-                                }
-                                Err(e) => {
-                                    // done writing / queue is full
-                                    log::error!("got error sending message client : {}", e);
-                                    true
-                                }
+                            // for high priority streams
+                            if priority == 0 {
+                                *stream_sender_map.first_key_value().unwrap().0
+                            } else {
+                                let value = stream_sender_map
+                                    .iter()
+                                    .max_by(|x, y| x.1.capacity().cmp(&y.1.capacity()))
+                                    .unwrap()
+                                    .0;
+                                *value
+                            }
+                        };
+
+                        let close = match send_message(
+                            &mut connection,
+                            &mut stream_sender_map,
+                            stream_id,
+                            message,
+                        ) {
+                            Ok(_) => {
+                                // do nothing
+                                false
+                            }
+                            Err(e) => {
+                                // done writing / queue is full
+                                log::error!("got error sending message client : {}", e);
+                                true
                             }
                         };
 
@@ -424,18 +437,22 @@ fn create_client_task(
                 for stream in connection.readable() {
                     let message = recv_message(&mut connection, &mut read_streams, stream);
                     match message {
-                        Ok(Some(message)) => match message {
-                            Message::Filters(mut f) => {
-                                let mut filter_lk = filters.write().unwrap();
-                                filter_lk.append(&mut f);
+                        Ok(Some(messages)) => {
+                            let mut filter_lk = filters.write().unwrap();
+                            for message in messages {
+                                match message {
+                                    Message::Filters(mut f) => {
+                                        filter_lk.append(&mut f);
+                                    }
+                                    Message::Ping => {
+                                        log::debug!("recieved ping from the client");
+                                    }
+                                    _ => {
+                                        log::error!("unknown message from the client");
+                                    }
+                                }
                             }
-                            Message::Ping => {
-                                log::debug!("recieved ping from the client");
-                            }
-                            _ => {
-                                log::error!("unknown message from the client");
-                            }
-                        },
+                        }
                         Ok(None) => {}
                         Err(e) => {
                             log::error!("Error recieving message : {e}")
@@ -450,7 +467,7 @@ fn create_client_task(
                 datagram_size = connection.max_send_udp_payload_size();
                 for stream_id in connection.writable() {
                     if let Err(e) =
-                        handle_writable(&mut connection, &mut partial_responses, stream_id)
+                        handle_writable(&mut connection, &mut stream_sender_map, stream_id)
                     {
                         if e == quiche::Error::Done {
                             break;

@@ -63,6 +63,7 @@ git-version = "0.3.5"
 vergen = "8.2.1"
 rand = "0.8.5"
 tokio = "1.28.2"
+circular-buffer = "0.1.9"
 
 quic-geyser-common = {path = "common", version="0.1.5"}
 quic-geyser-client = {path = "client", version="0.1.5"}

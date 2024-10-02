@@ -104,7 +104,6 @@ impl Client {
         tokio::sync::mpsc::UnboundedReceiver<Message>,
         Vec<tokio::task::JoinHandle<anyhow::Result<()>>>,
     )> {
-        let timeout: u64 = connection_parameters.timeout_in_seconds;
         let endpoint = create_client_endpoint(connection_parameters);
         let socket_addr = parse_host_port(&server_address)?;
         let connecting = endpoint.connect(socket_addr, "quic_geyser_client")?;
@@ -116,31 +115,41 @@ impl Client {
         let jh1 = {
             let connection = connection.clone();
             tokio::spawn(async move {
-                // limit client to respond to 128k streams in parallel
-                let semaphore = Arc::new(tokio::sync::Semaphore::new(128 * 1024));
                 loop {
                     // sender is closed / no messages to send
                     if message_sx_queue.is_closed() {
                         bail!("quic client stopped, sender closed");
                     }
-
-                    let permit = semaphore.clone().acquire_owned().await.unwrap();
                     let stream: Result<RecvStream, ConnectionError> = connection.accept_uni().await;
                     match stream {
-                        Ok(recv_stream) => {
-                            let sender = message_sx_queue.clone();
+                        Ok(mut recv_stream) => {
+                            let message_sx_queue = message_sx_queue.clone();
                             tokio::spawn(async move {
-                                //
-                                let _permit = permit;
-                                let message = recv_message(recv_stream, timeout).await;
-                                match message {
-                                    Ok(message) => {
-                                        if let Err(e) = sender.send(message) {
-                                            log::error!("Message sent error : {:?}", e);
+                                let mut buffer: Vec<u8> = vec![];
+                                loop {
+                                    match recv_stream
+                                        .read_chunk(DEFAULT_MAX_RECIEVE_WINDOW_SIZE as usize, true)
+                                        .await
+                                    {
+                                        Ok(Some(chunk)) => {
+                                            buffer.extend_from_slice(&chunk.bytes);
+                                            while let Some((message, size)) =
+                                                Message::from_binary_stream(&buffer)
+                                            {
+                                                if let Err(e) = message_sx_queue.send(message) {
+                                                    log::error!("Message sent error : {:?}", e);
+                                                    break;
+                                                }
+                                                buffer.drain(..size);
+                                            }
                                         }
-                                    }
-                                    Err(e) => {
-                                        log::trace!("Error getting message {:?}", e);
+                                        Ok(None) => {
+                                            log::warn!("Chunk none");
+                                        }
+                                        Err(e) => {
+                                            log::error!("Error getting message {:?}", e);
+                                            break;
+                                        }
                                     }
                                 }
                             });
@@ -174,7 +183,6 @@ impl Client {
 
                     if let Ok(mut uni_send_stream) = connection.open_uni().await {
                         let _ = uni_send_stream.write_all(&ping_message).await;
-                        let _ = uni_send_stream.finish().await;
                     } else {
                         // connection closed
                         break;

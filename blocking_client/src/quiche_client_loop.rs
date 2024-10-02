@@ -2,6 +2,7 @@ use std::{
     net::SocketAddr,
     sync::{atomic::AtomicBool, Arc},
     time::{Duration, Instant},
+    u64,
 };
 
 use quic_geyser_common::{
@@ -12,7 +13,7 @@ use quic_geyser_common::{
 use quic_geyser_quiche_utils::{
     quiche_reciever::{recv_message, ReadStreams},
     quiche_sender::{handle_writable, send_message},
-    quiche_utils::{generate_cid_and_reset_token, get_next_unidi, PartialResponses},
+    quiche_utils::{generate_cid_and_reset_token, get_next_unidi, StreamSenderMap},
 };
 
 use anyhow::bail;
@@ -137,11 +138,9 @@ pub fn create_quiche_client_thread(
         poll.registry()
             .register(&mut receiver, mio::Token(1), mio::Interest::READABLE)
             .unwrap();
-
-        let maximum_streams = u64::MAX;
-        let mut current_stream_id = 3;
+        let stream_id = get_next_unidi(3, false, u64::MAX);
         let mut out = [0; MAX_PAYLOAD_BUFFER];
-        let mut partial_responses = PartialResponses::new();
+        let mut stream_sender_map = StreamSenderMap::new();
         let mut read_streams = ReadStreams::new();
         let mut connected = false;
         let mut instance = Instant::now();
@@ -159,11 +158,10 @@ pub fn create_quiche_client_thread(
 
             if instance.elapsed() > Duration::from_secs(1) {
                 log::debug!("sending ping to the server");
-                current_stream_id = get_next_unidi(current_stream_id, false, maximum_streams);
                 if let Err(e) = send_message(
                     &mut connection,
-                    &mut partial_responses,
-                    current_stream_id,
+                    &mut stream_sender_map,
+                    stream_id,
                     ping_message.clone(),
                 ) {
                     log::error!("Error sending ping message : {e}");
@@ -213,9 +211,13 @@ pub fn create_quiche_client_thread(
                 for stream_id in connection.readable() {
                     let message = recv_message(&mut connection, &mut read_streams, stream_id);
                     match message {
-                        Ok(Some(message)) => {
-                            if let Err(e) = message_recv_queue.send(message) {
-                                log::error!("Error sending message on the channel : {e}");
+                        Ok(Some(messages)) => {
+                            log::debug!("got {} messages", messages.len());
+                            for message in messages {
+                                if let Err(e) = message_recv_queue.send(message) {
+                                    log::error!("Error sending message on the channel : {e}");
+                                    break;
+                                }
                             }
                         }
                         Ok(None) => {
@@ -230,16 +232,14 @@ pub fn create_quiche_client_thread(
                 loop {
                     match message_send_queue.try_recv() {
                         Ok(message_to_send) => {
-                            current_stream_id =
-                                get_next_unidi(current_stream_id, false, maximum_streams);
                             let binary = Arc::new(
                                 bincode::serialize(&message_to_send)
                                     .expect("Message should be serializable"),
                             );
                             if let Err(e) = send_message(
                                 &mut connection,
-                                &mut partial_responses,
-                                current_stream_id,
+                                &mut stream_sender_map,
+                                stream_id,
                                 binary,
                             ) {
                                 log::error!("Sending failed with error {e:?}");
@@ -261,7 +261,7 @@ pub fn create_quiche_client_thread(
             }
 
             for stream_id in connection.writable() {
-                if let Err(e) = handle_writable(&mut connection, &mut partial_responses, stream_id)
+                if let Err(e) = handle_writable(&mut connection, &mut stream_sender_map, stream_id)
                 {
                     if e != quiche::Error::Done {
                         log::error!("Error writing message on writable stream : {e:?}");
