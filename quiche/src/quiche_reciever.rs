@@ -20,7 +20,7 @@ pub fn recv_message(
                 Err(e) => match &e {
                     quiche::Error::Done => {
                         let mut messages = vec![];
-                        if let Some((message, size)) = Message::from_binary_stream(&total_buf) {
+                        if let Some((message, size)) = Message::from_binary_stream(total_buf) {
                             total_buf.drain(..size);
                             messages.push(message);
                         }

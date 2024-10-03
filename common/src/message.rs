@@ -57,7 +57,7 @@ mod tests {
 
     use super::Message;
 
-    pub fn create_random_message(rng: &mut ThreadRng) -> Message {
+    pub fn _create_random_message(rng: &mut ThreadRng) -> Message {
         let message_type = rng.gen::<u8>() % 3;
 
         match message_type {

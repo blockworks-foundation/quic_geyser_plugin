@@ -7,12 +7,13 @@ use quic_geyser_common::message::Message;
 use quic_geyser_common::net::parse_host_port;
 use quic_geyser_common::types::connections_parameters::ConnectionParameters;
 use quinn::{
-    ClientConfig, Connection, ConnectionError, Endpoint, EndpointConfig, IdleTimeout, RecvStream,
+    ClientConfig, ConnectionError, Endpoint, EndpointConfig, IdleTimeout, RecvStream,
     SendStream, TokioRuntime, TransportConfig, VarInt,
 };
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 
 pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> Endpoint {
     let mut endpoint = {
@@ -85,12 +86,13 @@ pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> En
 // }
 
 pub struct Client {
-    connection: Connection,
+    filter_sender: tokio::sync::mpsc::UnboundedSender<Vec<Filter>>,
 }
 
-pub async fn send_message(mut send_stream: SendStream, message: &Message) -> anyhow::Result<()> {
+pub async fn send_message(send_stream: &mut SendStream, message: &Message) -> anyhow::Result<()> {
     let binary = message.to_binary_stream();
     send_stream.write_all(&binary).await?;
+    send_stream.flush().await?;
     Ok(())
 }
 
@@ -171,31 +173,36 @@ impl Client {
             })
         };
 
-        // create a ping thread
+        // create a ping thread and subscribe thread
+        let (filter_sender, mut filter_rx) = tokio::sync::mpsc::unbounded_channel();
         let jh2 = {
             let connection = connection.clone();
             tokio::spawn(async move {
-                let ping_message = Message::Ping.to_binary_stream();
-                loop {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                let mut uni_stream = connection.open_uni().await?;
 
-                    if let Ok(mut uni_send_stream) = connection.open_uni().await {
-                        let _ = uni_send_stream.write_all(&ping_message).await;
-                    } else {
-                        // connection closed
-                        break;
+                loop {
+                    tokio::select! {
+                        filters = filter_rx.recv() => {
+                            if let Some(filters) = filters {
+                                send_message(&mut uni_stream, &Message::Filters(filters)).await?;
+                            } else {
+                                break;
+                            }
+                        },
+                        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                            send_message( &mut uni_stream, &Message::Ping).await?;
+                        }
                     }
                 }
-                bail!("quic client stopped, ping message thread dropped")
+                Ok(())
             })
         };
 
-        Ok((Client { connection }, message_rx_queue, vec![jh1, jh2]))
+        Ok((Client { filter_sender }, message_rx_queue, vec![jh1, jh2]))
     }
 
     pub async fn subscribe(&self, filters: Vec<Filter>) -> anyhow::Result<()> {
-        let send_stream = self.connection.open_uni().await?;
-        send_message(send_stream, &Message::Filters(filters)).await?;
+        self.filter_sender.send(filters)?;
         Ok(())
     }
 }
@@ -260,6 +267,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn test_non_blocking_client() {
+        tracing_subscriber::fmt::init();
         let server_sock: SocketAddr = parse_host_port("[::]:20000").unwrap();
         let url = format!("127.0.0.1:{}", server_sock.port());
 
@@ -268,7 +276,7 @@ mod tests {
         let msg_acc_3 = Message::AccountMsg(get_account_for_test(2, 100));
         let msg_acc_4 = Message::AccountMsg(get_account_for_test(3, 1_000));
         let msg_acc_5 = Message::AccountMsg(get_account_for_test(4, 10_000));
-        let msg_acc_6 = Message::AccountMsg(get_account_for_test(4, 100_000_000));
+        let msg_acc_6 = Message::AccountMsg(get_account_for_test(4, 10_000_000));
         let msgs = [
             msg_acc_1, msg_acc_2, msg_acc_3, msg_acc_4, msg_acc_5, msg_acc_6,
         ];

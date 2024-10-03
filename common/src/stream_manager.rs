@@ -2,17 +2,17 @@ pub struct StreamSender<const BUFFER_LEN: usize> {
     buffer: Box<circular_buffer::CircularBuffer<BUFFER_LEN, u8>>,
 }
 
+#[allow(clippy::new_without_default)]
 impl<const BUFFER_LEN: usize> StreamSender<BUFFER_LEN> {
     pub fn new() -> StreamSender<BUFFER_LEN> {
-        log::debug!("A");
         StreamSender {
-            buffer: Box::new(circular_buffer::CircularBuffer::new()),
+            buffer: circular_buffer::CircularBuffer::boxed(),
         }
     }
 
     pub fn append_bytes(&mut self, bytes: &[u8]) -> bool {
         if self.capacity() > bytes.len() {
-            self.buffer.extend_from_slice(&bytes);
+            self.buffer.extend_from_slice(bytes);
             true
         } else {
             // not enough capacity

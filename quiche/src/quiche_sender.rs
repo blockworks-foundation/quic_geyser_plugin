@@ -42,7 +42,7 @@ pub fn send_message(
         };
         log::debug!("dispatched {} on stream id : {}", written, stream_id);
         if written < message.len() {
-            log::debug!("appending bytes : {}", message.len() - written);
+            log::debug!("Creating new streambuffer : {}", message.len() - written);
             message.drain(..written);
             let mut new_stream_sender = Box::new(StreamSenderWithDefaultCapacity::new());
             log::debug!("B");

@@ -385,7 +385,7 @@ fn create_client_task(
                         } else {
                             // for high priority streams
                             let stream_id = if priority == 0 {
-                                *stream_sender_map.first_key_value().unwrap().0
+                                first_stream_id
                             } else {
                                 let value = stream_sender_map
                                     .iter()
