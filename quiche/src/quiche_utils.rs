@@ -163,6 +163,6 @@ pub fn generate_cid_and_reset_token<T: SecureRandom>(
 }
 
 // 16 MB per buffer
-pub const BUFFER_LEN: usize = 24 * 1024 * 1024;
+pub const BUFFER_LEN: usize = 32 * 1024 * 1024;
 pub type StreamSenderWithDefaultCapacity = StreamSender<BUFFER_LEN>;
 pub type StreamSenderMap = BTreeMap<u64, StreamSenderWithDefaultCapacity>;

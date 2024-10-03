@@ -242,16 +242,16 @@ async fn non_blocking(args: Args, client_stats: ClientStats, break_thread: Arc<A
     .unwrap();
     println!("Connected");
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    let mut filters = vec![Filter::Slot, Filter::BlockMeta];
-    if args.blocks_instead_of_accounts {
-        filters.push(Filter::BlockAll);
-    } else {
-        filters.push(Filter::AccountsAll);
-    }
+    // let mut filters = vec![Filter::Slot, Filter::BlockMeta];
+    // if args.blocks_instead_of_accounts {
+    //     filters.push(Filter::BlockAll);
+    // } else {
+    //     filters.push(Filter::AccountsAll);
+    // }
 
+    sleep(Duration::from_secs(5));
     println!("Subscribing");
-    client.subscribe(filters).await.unwrap();
+    client.subscribe(vec![Filter::AccountsAll]).await.unwrap();
     println!("Subscribed");
 
     tokio::spawn(async move {

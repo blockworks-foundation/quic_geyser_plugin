@@ -184,14 +184,24 @@ impl Client {
                     tokio::select! {
                         filters = filter_rx.recv() => {
                             if let Some(filters) = filters {
-                                send_message(&mut uni_stream, &Message::Filters(filters)).await?;
-                            } else {
-                                break;
+                                log::debug!("Sending server filters: {filters:?} on {}", uni_stream.id());
+                                if let Err(e) = send_message(&mut uni_stream, &Message::Filters(filters)).await {
+                                    log::error!("Error while sending filters : {e:?}");
+                                }
                             }
+                            break;
                         },
                         _ = tokio::time::sleep(Duration::from_secs(1)) => {
                             send_message( &mut uni_stream, &Message::Ping).await?;
                         }
+                    }
+                }
+                // keep sending pings
+                loop {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    if let Err(e) = send_message(&mut uni_stream, &Message::Ping).await {
+                        log::error!("Error while sending ping message : {e:?}");
+                        break;
                     }
                 }
                 Ok(())
@@ -268,7 +278,7 @@ mod tests {
     #[tokio::test]
     pub async fn test_non_blocking_client() {
         tracing_subscriber::fmt::init();
-        let server_sock: SocketAddr = parse_host_port("[::]:20000").unwrap();
+        let server_sock: SocketAddr = parse_host_port("0.0.0.0:20000").unwrap();
         let url = format!("127.0.0.1:{}", server_sock.port());
 
         let msg_acc_1 = Message::AccountMsg(get_account_for_test(0, 2));

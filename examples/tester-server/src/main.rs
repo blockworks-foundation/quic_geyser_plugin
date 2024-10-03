@@ -18,7 +18,7 @@ pub fn main() {
     let args = Args::parse();
 
     let config = ConfigQuicPlugin {
-        address: parse_host_port(format!("0.0.0.0:{}", args.port).as_str()).unwrap(),
+        address: parse_host_port(format!("[::]:{}", args.port).as_str()).unwrap(),
         log_level: "info".to_string(),
         quic_parameters: QuicParameters {
             max_number_of_streams_per_client: args.number_of_streams,

@@ -6,7 +6,7 @@ use std::{
         mpsc::{self, Sender},
         Arc, Mutex, RwLock,
     },
-    time::{Duration, Instant},
+    time::Duration,
     u64,
 };
 
@@ -165,7 +165,12 @@ pub fn server_loop(
         if !clients_lk.contains_key(&hdr.dcid) && !clients_lk.contains_key(&conn_id) {
             drop(clients_lk);
             if hdr.ty != quiche::Type::Initial {
-                log::error!("Packet is not Initial");
+                log::error!(
+                    "Packet is not Initial : {:?} for dicd : {:?} and connection_id: {:?}",
+                    hdr.ty,
+                    &hdr.dcid,
+                    conn_id
+                );
                 continue;
             }
 
@@ -327,10 +332,9 @@ fn create_client_task(
     std::thread::spawn(move || {
         let mut stream_sender_map = StreamSenderMap::new();
         let mut read_streams = ReadStreams::new();
-        let first_stream_id = get_next_unidi(0, true, u64::MAX);
+        let first_stream_id = get_next_unidi(3, true, u64::MAX);
         let mut next_stream: u64 = first_stream_id;
         let mut connection = connection;
-        let mut instance = Instant::now();
         let mut closed = false;
         let mut out = [0; 65535];
         let mut datagram_size = MAX_DATAGRAM_SIZE;
@@ -354,6 +358,7 @@ fn create_client_task(
 
                 match internal_message {
                     InternalMessage::Packet(info, mut buf) => {
+                        log::debug!("got packet : {}", buf.len());
                         // handle packet from udp socket
                         let buf = buf.as_mut_slice();
                         match connection.recv(buf, info) {
@@ -365,6 +370,11 @@ fn create_client_task(
                         };
                     }
                     InternalMessage::ClientMessage(message, priority) => {
+                        log::debug!("got message : {}", message.len());
+                        if closed {
+                            // connection is already closed
+                            continue;
+                        }
                         // handle message from client
                         // create new stream is there are still streams to be used or else use the existing one with most capacity
                         let stream_id = if stream_sender_map.len() < maximum_concurrent_streams {
@@ -441,7 +451,6 @@ fn create_client_task(
                     let message = recv_message(&mut connection, &mut read_streams, stream);
                     match message {
                         Ok(Some(messages)) => {
-                            log::info!("messages : {messages:?}");
                             let mut filter_lk = filters.write().unwrap();
                             for message in messages {
                                 match message {
@@ -459,7 +468,9 @@ fn create_client_task(
                         }
                         Ok(None) => {}
                         Err(e) => {
-                            log::error!("Error recieving message : {e}")
+                            log::error!("Error recieving message : {e}");
+                            // missed the message close the connection
+                            let _ = connection.close(true, 0, b"recv error");
                         }
                     }
                 }
@@ -486,27 +497,23 @@ fn create_client_task(
                 }
             }
 
-            if instance.elapsed() > Duration::from_secs(1) {
-                log::debug!("other tasks");
-                instance = Instant::now();
-                handle_path_events(&mut connection);
+            handle_path_events(&mut connection);
 
-                // See whether source Connection IDs have been retired.
-                while let Some(retired_scid) = connection.retired_scid_next() {
-                    log::info!("Retiring source CID {:?}", retired_scid);
-                    client_id_by_scid.lock().unwrap().remove(&retired_scid);
+            // See whether source Connection IDs have been retired.
+            while let Some(retired_scid) = connection.retired_scid_next() {
+                log::info!("Retiring source CID {:?}", retired_scid);
+                client_id_by_scid.lock().unwrap().remove(&retired_scid);
+            }
+
+            // Provides as many CIDs as possible.
+            while connection.scids_left() > 0 {
+                let (scid, reset_token) = generate_cid_and_reset_token(&rng);
+
+                log::info!("providing new scid {scid:?}");
+                if connection.new_scid(&scid, reset_token, false).is_err() {
+                    break;
                 }
-
-                // Provides as many CIDs as possible.
-                while connection.scids_left() > 0 {
-                    let (scid, reset_token) = generate_cid_and_reset_token(&rng);
-
-                    log::info!("providing new scid {scid:?}");
-                    if connection.new_scid(&scid, reset_token, false).is_err() {
-                        break;
-                    }
-                    client_id_by_scid.lock().unwrap().insert(scid, client_id);
-                }
+                client_id_by_scid.lock().unwrap().insert(scid, client_id);
             }
 
             let mut send_message_to = None;

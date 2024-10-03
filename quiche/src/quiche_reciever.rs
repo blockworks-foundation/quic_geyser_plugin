@@ -1,8 +1,11 @@
 use anyhow::bail;
-use quic_geyser_common::{defaults::MAX_DATAGRAM_SIZE, message::Message};
-use std::collections::HashMap;
+use quic_geyser_common::{
+    defaults::MAX_DATAGRAM_SIZE, message::Message, stream_manager::StreamSender,
+};
+use std::collections::BTreeMap;
 
-pub type ReadStreams = HashMap<u64, Vec<u8>>;
+const BUFFER_SIZE: usize = 32 * 1024 * 1024;
+pub type ReadStreams = BTreeMap<u64, StreamSender<BUFFER_SIZE>>;
 
 pub fn recv_message(
     connection: &mut quiche::Connection,
@@ -15,13 +18,15 @@ pub fn recv_message(
             match connection.stream_recv(stream_id, &mut buf) {
                 Ok((read, _)) => {
                     log::trace!("read {} on stream {}", read, stream_id);
-                    total_buf.extend_from_slice(&buf[..read]);
+                    total_buf.append_bytes(&buf[..read]);
                 }
                 Err(e) => match &e {
                     quiche::Error::Done => {
                         let mut messages = vec![];
-                        if let Some((message, size)) = Message::from_binary_stream(total_buf) {
-                            total_buf.drain(..size);
+                        if let Some((message, size)) =
+                            Message::from_binary_stream(total_buf.as_slices().0)
+                        {
+                            total_buf.consume(size);
                             messages.push(message);
                         }
                         return Ok(if messages.is_empty() {
@@ -37,19 +42,20 @@ pub fn recv_message(
             }
         }
     } else {
-        let mut total_buf = vec![];
-        total_buf.reserve(1350);
+        let mut total_buf = StreamSender::<BUFFER_SIZE>::new();
         loop {
             match connection.stream_recv(stream_id, &mut buf) {
                 Ok((read, _)) => {
                     log::trace!("read {} on stream {}", read, stream_id);
-                    total_buf.extend_from_slice(&buf[..read]);
+                    total_buf.append_bytes(&buf[..read]);
                 }
                 Err(e) => match &e {
                     quiche::Error::Done => {
                         let mut messages = vec![];
-                        if let Some((message, size)) = Message::from_binary_stream(&total_buf) {
-                            total_buf.drain(..size);
+                        if let Some((message, size)) =
+                            Message::from_binary_stream(total_buf.as_slices().0)
+                        {
+                            total_buf.consume(size);
                             messages.push(message);
                         }
                         read_streams.insert(stream_id, total_buf);
