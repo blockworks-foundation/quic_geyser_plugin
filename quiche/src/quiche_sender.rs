@@ -1,20 +1,14 @@
-use std::sync::Arc;
-
-use crate::quiche_utils::StreamSenderMap;
-use quic_geyser_common::message::Message;
+use crate::quiche_utils::{StreamSenderMap, StreamSenderWithDefaultCapacity};
 use quiche::Connection;
-
-pub fn convert_to_binary(message: &Message) -> anyhow::Result<Vec<u8>> {
-    Ok(bincode::serialize(&message)?)
-}
 
 // return if connection has finished writing
 pub fn send_message(
     connection: &mut Connection,
     stream_sender_map: &mut StreamSenderMap,
     stream_id: u64,
-    message: Arc<Vec<u8>>,
+    mut message: Vec<u8>,
 ) -> std::result::Result<(), quiche::Error> {
+    log::info!("sending message");
     if let Some(stream_sender) = stream_sender_map.get_mut(&stream_id) {
         if stream_sender.is_empty() {
             let written = match connection.stream_send(stream_id, &message, false) {
@@ -25,10 +19,37 @@ pub fn send_message(
                 }
             };
 
-            log::trace!("dispatched {} on stream id : {}", written, stream_id);
-            assert!(stream_sender.append_bytes(&message[written..]));
-        } else {
-            stream_sender.append_bytes(&message);
+            log::debug!("dispatched {} on stream id : {}", written, stream_id);
+            if written < message.len() {
+                log::debug!("appending bytes : {}", message.len() - written);
+                message.drain(..written);
+                if !stream_sender.append_bytes(&message) {
+                    return Err(quiche::Error::BufferTooShort);
+                }
+            }
+        } else if !stream_sender.append_bytes(&message) {
+            return Err(quiche::Error::BufferTooShort);
+        }
+    } else {
+        log::info!("writing");
+        let written = match connection.stream_send(stream_id, &message, false) {
+            Ok(v) => v,
+            Err(quiche::Error::Done) => 0,
+            Err(e) => {
+                println!("error sending on stream : {e:?}");
+                return Err(e);
+            }
+        };
+        log::debug!("dispatched {} on stream id : {}", written, stream_id);
+        if written < message.len() {
+            log::debug!("appending bytes : {}", message.len() - written);
+            message.drain(..written);
+            let mut new_stream_sender = Box::new(StreamSenderWithDefaultCapacity::new());
+            log::debug!("B");
+            if !new_stream_sender.append_bytes(&message) {
+                return Err(quiche::Error::BufferTooShort);
+            }
+            stream_sender_map.insert(stream_id, new_stream_sender);
         }
     }
     Ok(())
@@ -62,8 +83,6 @@ pub fn handle_writable(
                 }
             }
         }
-    } else {
-        log::error!("No writable stream : {stream_id:?}");
     }
     Ok(())
 }

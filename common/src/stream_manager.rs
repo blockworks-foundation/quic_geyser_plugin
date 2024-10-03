@@ -1,11 +1,12 @@
 pub struct StreamSender<const BUFFER_LEN: usize> {
-    buffer: circular_buffer::CircularBuffer<BUFFER_LEN, u8>,
+    buffer: Box<circular_buffer::CircularBuffer<BUFFER_LEN, u8>>,
 }
 
 impl<const BUFFER_LEN: usize> StreamSender<BUFFER_LEN> {
     pub fn new() -> StreamSender<BUFFER_LEN> {
+        log::debug!("A");
         StreamSender {
-            buffer: circular_buffer::CircularBuffer::new(),
+            buffer: Box::new(circular_buffer::CircularBuffer::new()),
         }
     }
 

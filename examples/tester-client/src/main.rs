@@ -144,7 +144,7 @@ fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>
     std::thread::spawn(move || {
         let _client = client;
         while let Ok(message) = reciever.recv() {
-            let message_size = bincode::serialize(&message).unwrap().len();
+            let message_size = message.to_binary_stream().len();
             client_stats
                 .bytes_transfered
                 .fetch_add(message_size as u64, std::sync::atomic::Ordering::Relaxed);
@@ -256,7 +256,7 @@ async fn non_blocking(args: Args, client_stats: ClientStats, break_thread: Arc<A
 
     tokio::spawn(async move {
         while let Some(message) = reciever.recv().await {
-            let message_size = bincode::serialize(&message).unwrap().len();
+            let message_size = message.to_binary_stream().len();
             client_stats
                 .bytes_transfered
                 .fetch_add(message_size as u64, std::sync::atomic::Ordering::Relaxed);

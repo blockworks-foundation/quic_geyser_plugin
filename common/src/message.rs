@@ -10,9 +10,6 @@ use crate::{
     },
 };
 
-// current maximum message size
-pub const MAX_MESSAGE_SIZE: u64 = 20_000_000;
-
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum Message {
@@ -42,7 +39,7 @@ impl Message {
     pub fn to_binary_stream(&self) -> Vec<u8> {
         let binary = bincode::serialize(self).unwrap();
         let size = binary.len().to_le_bytes();
-        [size.as_slice(), &binary].concat()
+        [size.to_vec(), binary].concat()
     }
 }
 

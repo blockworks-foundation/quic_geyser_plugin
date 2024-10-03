@@ -66,32 +66,31 @@ pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> En
     endpoint
 }
 
-pub async fn recv_message(
-    mut recv_stream: RecvStream,
-    timeout_in_seconds: u64,
-) -> anyhow::Result<Message> {
-    let mut buffer = Vec::<u8>::new();
-    buffer.reserve(128 * 1024); // reserve 128 kbs for each message
+// pub async fn recv_message(
+//     mut recv_stream: RecvStream,
+//     timeout_in_seconds: u64,
+// ) -> anyhow::Result<Message> {
+//     let mut buffer = Vec::<u8>::new();
+//     buffer.reserve(128 * 1024); // reserve 128 kbs for each message
 
-    while let Some(data) = tokio::time::timeout(
-        Duration::from_secs(timeout_in_seconds),
-        recv_stream.read_chunk(DEFAULT_MAX_RECIEVE_WINDOW_SIZE as usize, true),
-    )
-    .await??
-    {
-        buffer.extend_from_slice(&data.bytes);
-    }
-    Ok(bincode::deserialize::<Message>(&buffer)?)
-}
+//     while let Some(data) = tokio::time::timeout(
+//         Duration::from_secs(timeout_in_seconds),
+//         recv_stream.read_chunk(DEFAULT_MAX_RECIEVE_WINDOW_SIZE as usize, true),
+//     )
+//     .await??
+//     {
+//         buffer.extend_from_slice(&data.bytes);
+//     }
+//     Ok(bincode::deserialize::<Message>(&buffer)?)
+// }
 
 pub struct Client {
     connection: Connection,
 }
 
 pub async fn send_message(mut send_stream: SendStream, message: &Message) -> anyhow::Result<()> {
-    let binary = bincode::serialize(&message)?;
+    let binary = message.to_binary_stream();
     send_stream.write_all(&binary).await?;
-    send_stream.finish().await?;
     Ok(())
 }
 
@@ -176,8 +175,7 @@ impl Client {
         let jh2 = {
             let connection = connection.clone();
             tokio::spawn(async move {
-                let ping_message = bincode::serialize(&Message::Ping)
-                    .expect("ping message should be serializable");
+                let ping_message = Message::Ping.to_binary_stream();
                 loop {
                     tokio::time::sleep(Duration::from_secs(1)).await;
 

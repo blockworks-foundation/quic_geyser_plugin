@@ -75,7 +75,7 @@ use crate::configure_server::configure_server;
 
 enum InternalMessage {
     Packet(quiche::RecvInfo, Vec<u8>),
-    ClientMessage(Arc<Vec<u8>>, u8),
+    ClientMessage(Vec<u8>, u8),
 }
 
 struct DispatchingData {
@@ -327,7 +327,7 @@ fn create_client_task(
     std::thread::spawn(move || {
         let mut stream_sender_map = StreamSenderMap::new();
         let mut read_streams = ReadStreams::new();
-        let first_stream_id = get_next_unidi(3, true, u64::MAX);
+        let first_stream_id = get_next_unidi(0, true, u64::MAX);
         let mut next_stream: u64 = first_stream_id;
         let mut connection = connection;
         let mut instance = Instant::now();
@@ -370,6 +370,7 @@ fn create_client_task(
                         let stream_id = if stream_sender_map.len() < maximum_concurrent_streams {
                             let stream_id_to_use = next_stream;
                             next_stream = get_next_unidi(stream_id_to_use, true, u64::MAX);
+                            log::debug!("Creating new stream to use :{stream_id_to_use}");
                             if stream_id_to_use == first_stream_id {
                                 // set high priority to first stream
                                 connection
@@ -383,7 +384,7 @@ fn create_client_task(
                             stream_id_to_use
                         } else {
                             // for high priority streams
-                            if priority == 0 {
+                            let stream_id = if priority == 0 {
                                 *stream_sender_map.first_key_value().unwrap().0
                             } else {
                                 let value = stream_sender_map
@@ -392,7 +393,9 @@ fn create_client_task(
                                     .unwrap()
                                     .0;
                                 *value
-                            }
+                            };
+                            log::debug!("Reusing stream {stream_id}");
+                            stream_id
                         };
 
                         let close = match send_message(
@@ -644,12 +647,12 @@ fn create_dispatching_thread(
                                 parent,
                                 commitment_config,
                             }),
-                            1,
+                            0,
                         )
                     }
                     ChannelMessage::BlockMeta(block_meta) => {
                         NUMBER_OF_BLOCKMETA_UPDATE.inc();
-                        (Message::BlockMetaMsg(block_meta), 2)
+                        (Message::BlockMetaMsg(block_meta), 0)
                     }
                     ChannelMessage::Transaction(transaction) => {
                         NUMBER_OF_TRANSACTION_UPDATES.inc();
@@ -660,9 +663,7 @@ fn create_dispatching_thread(
                         (Message::BlockMsg(block), 2)
                     }
                 };
-                let binary = Arc::new(
-                    bincode::serialize(&message).expect("Message should be serializable in binary"),
-                );
+                let binary = message.to_binary_stream();
                 for id in dispatching_connections.iter() {
                     let data = dispatching_connections_lk.get(id).unwrap();
                     if data

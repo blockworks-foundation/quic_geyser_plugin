@@ -139,13 +139,10 @@ pub fn create_quiche_client_thread(
             .register(&mut receiver, mio::Token(1), mio::Interest::READABLE)
             .unwrap();
         let stream_id = get_next_unidi(3, false, u64::MAX);
-        let mut out = [0; MAX_PAYLOAD_BUFFER];
         let mut stream_sender_map = StreamSenderMap::new();
         let mut read_streams = ReadStreams::new();
         let mut connected = false;
         let mut instance = Instant::now();
-        let ping_message = Arc::new(bincode::serialize(&Message::Ping).unwrap());
-
         // Generate a random source connection ID for the connection.
         let rng = SystemRandom::new();
 
@@ -162,7 +159,7 @@ pub fn create_quiche_client_thread(
                     &mut connection,
                     &mut stream_sender_map,
                     stream_id,
-                    ping_message.clone(),
+                    Message::Ping.to_binary_stream(),
                 ) {
                     log::error!("Error sending ping message : {e}");
                 }
@@ -209,10 +206,11 @@ pub fn create_quiche_client_thread(
             if connection.is_established() {
                 // io events
                 for stream_id in connection.readable() {
+                    log::debug!("got readable stream");
                     let message = recv_message(&mut connection, &mut read_streams, stream_id);
                     match message {
                         Ok(Some(messages)) => {
-                            log::debug!("got {} messages", messages.len());
+                            log::debug!("got messages: {}", messages.len());
                             for message in messages {
                                 if let Err(e) = message_recv_queue.send(message) {
                                     log::error!("Error sending message on the channel : {e}");
@@ -232,10 +230,11 @@ pub fn create_quiche_client_thread(
                 loop {
                     match message_send_queue.try_recv() {
                         Ok(message_to_send) => {
-                            let binary = Arc::new(
-                                bincode::serialize(&message_to_send)
-                                    .expect("Message should be serializable"),
+                            log::debug!(
+                                "sending message: {message_to_send:?} on stream : {stream_id:?}"
                             );
+                            let binary = message_to_send.to_binary_stream();
+                            log::debug!("finished binary message of length {}", binary.len());
                             if let Err(e) = send_message(
                                 &mut connection,
                                 &mut stream_sender_map,
@@ -275,9 +274,11 @@ pub fn create_quiche_client_thread(
                 break;
             }
 
+            let mut out = vec![0; MAX_PAYLOAD_BUFFER];
             loop {
                 match connection.send(&mut out) {
                     Ok((write, send_info)) => {
+                        log::debug!("sending :{}", write);
                         if sender.send((send_info, out[..write].to_vec())).is_err() {
                             log::error!("client socket thread broken");
                             break 'client;
