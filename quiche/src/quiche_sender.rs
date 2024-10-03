@@ -8,7 +8,6 @@ pub fn send_message(
     stream_id: u64,
     mut message: Vec<u8>,
 ) -> std::result::Result<(), quiche::Error> {
-    log::info!("sending message");
     if let Some(stream_sender) = stream_sender_map.get_mut(&stream_id) {
         if stream_sender.is_empty() {
             let written = match connection.stream_send(stream_id, &message, false) {
@@ -31,12 +30,10 @@ pub fn send_message(
             return Err(quiche::Error::BufferTooShort);
         }
     } else {
-        log::info!("writing");
         let written = match connection.stream_send(stream_id, &message, false) {
             Ok(v) => v,
             Err(quiche::Error::Done) => 0,
             Err(e) => {
-                println!("error sending on stream : {e:?}");
                 return Err(e);
             }
         };
@@ -44,8 +41,7 @@ pub fn send_message(
         if written < message.len() {
             log::debug!("Creating new streambuffer : {}", message.len() - written);
             message.drain(..written);
-            let mut new_stream_sender = Box::new(StreamSenderWithDefaultCapacity::new());
-            log::debug!("B");
+            let mut new_stream_sender = StreamSenderWithDefaultCapacity::new();
             if !new_stream_sender.append_bytes(&message) {
                 return Err(quiche::Error::BufferTooShort);
             }

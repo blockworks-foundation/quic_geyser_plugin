@@ -138,7 +138,7 @@ pub fn create_quiche_client_thread(
         poll.registry()
             .register(&mut receiver, mio::Token(1), mio::Interest::READABLE)
             .unwrap();
-        let stream_id = get_next_unidi(3, false, u64::MAX);
+        let stream_id = get_next_unidi(0, false, u64::MAX);
         let mut stream_sender_map = StreamSenderMap::new();
         let mut read_streams = ReadStreams::new();
         let mut connected = false;
@@ -223,6 +223,7 @@ pub fn create_quiche_client_thread(
                         }
                         Err(e) => {
                             log::error!("Error recieving message : {e}");
+                            let _ = connection.close(true, 1, b"error recieving");
                         }
                     }
                 }

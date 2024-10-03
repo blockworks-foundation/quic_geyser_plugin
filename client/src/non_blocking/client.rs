@@ -7,8 +7,8 @@ use quic_geyser_common::message::Message;
 use quic_geyser_common::net::parse_host_port;
 use quic_geyser_common::types::connections_parameters::ConnectionParameters;
 use quinn::{
-    ClientConfig, ConnectionError, Endpoint, EndpointConfig, IdleTimeout, RecvStream,
-    SendStream, TokioRuntime, TransportConfig, VarInt,
+    ClientConfig, ConnectionError, Endpoint, EndpointConfig, IdleTimeout, RecvStream, SendStream,
+    TokioRuntime, TransportConfig, VarInt,
 };
 use std::net::UdpSocket;
 use std::sync::Arc;

@@ -441,6 +441,7 @@ fn create_client_task(
                     let message = recv_message(&mut connection, &mut read_streams, stream);
                     match message {
                         Ok(Some(messages)) => {
+                            log::info!("messages : {messages:?}");
                             let mut filter_lk = filters.write().unwrap();
                             for message in messages {
                                 match message {
