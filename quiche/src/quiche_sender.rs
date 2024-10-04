@@ -38,15 +38,13 @@ pub fn send_message(
             }
         };
         log::debug!("dispatched {} on stream id : {}", written, stream_id);
-        if written < message.len() {
-            log::debug!("Creating new streambuffer : {}", message.len() - written);
-            message.drain(..written);
-            let mut new_stream_sender = StreamSenderWithDefaultCapacity::new();
-            if !new_stream_sender.append_bytes(&message) {
-                return Err(quiche::Error::BufferTooShort);
-            }
-            stream_sender_map.insert(stream_id, new_stream_sender);
+        log::debug!("Creating new streambuffer : {}", message.len() - written);
+        message.drain(..written);
+        let mut new_stream_sender = StreamSenderWithDefaultCapacity::new();
+        if !new_stream_sender.append_bytes(&message) {
+            return Err(quiche::Error::BufferTooShort);
         }
+        stream_sender_map.insert(stream_id, new_stream_sender);
     }
     Ok(())
 }

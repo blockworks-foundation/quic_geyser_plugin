@@ -148,7 +148,7 @@ impl Client {
                                             log::warn!("Chunk none");
                                         }
                                         Err(e) => {
-                                            log::error!("Error getting message {:?}", e);
+                                            log::debug!("Error getting message {:?}", e);
                                             break;
                                         }
                                     }
