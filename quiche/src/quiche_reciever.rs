@@ -1,51 +1,74 @@
-use std::collections::HashMap;
-
 use anyhow::bail;
+use quic_geyser_common::{
+    defaults::MAX_DATAGRAM_SIZE, message::Message, stream_manager::StreamSender,
+};
+use std::collections::BTreeMap;
 
-use quic_geyser_common::{defaults::MAX_DATAGRAM_SIZE, message::Message};
-
-pub fn convert_binary_to_message(bytes: Vec<u8>) -> anyhow::Result<Message> {
-    Ok(bincode::deserialize::<Message>(&bytes)?)
-}
-
-pub type ReadStreams = HashMap<u64, Vec<u8>>;
+const BUFFER_SIZE: usize = 32 * 1024 * 1024;
+pub type ReadStreams = BTreeMap<u64, StreamSender<BUFFER_SIZE>>;
 
 pub fn recv_message(
     connection: &mut quiche::Connection,
     read_streams: &mut ReadStreams,
     stream_id: u64,
-) -> anyhow::Result<Option<Message>> {
-    let mut total_buf = match read_streams.remove(&stream_id) {
-        Some(buf) => buf,
-        None => vec![],
-    };
-    loop {
-        let mut buf = [0; MAX_DATAGRAM_SIZE];
-        match connection.stream_recv(stream_id, &mut buf) {
-            Ok((read, fin)) => {
-                log::trace!("read {} on stream {}", read, stream_id);
-                total_buf.extend_from_slice(&buf[..read]);
-                if fin {
-                    log::trace!("fin stream : {}", stream_id);
-                    match bincode::deserialize::<Message>(&total_buf) {
-                        Ok(message) => return Ok(Some(message)),
-                        Err(e) => {
-                            bail!("Error deserializing stream {stream_id} error: {e:?}");
-                        }
-                    }
+) -> anyhow::Result<Option<Vec<Message>>> {
+    let mut buf = [0; MAX_DATAGRAM_SIZE];
+    if let Some(total_buf) = read_streams.get_mut(&stream_id) {
+        loop {
+            match connection.stream_recv(stream_id, &mut buf) {
+                Ok((read, _)) => {
+                    log::trace!("read {} on stream {}", read, stream_id);
+                    total_buf.append_bytes(&buf[..read]);
                 }
-            }
-            Err(e) => {
-                match &e {
+                Err(e) => match &e {
                     quiche::Error::Done => {
-                        // will be tried again later
-                        read_streams.insert(stream_id, total_buf);
-                        return Ok(None);
+                        let mut messages = vec![];
+                        if let Some((message, size)) =
+                            Message::from_binary_stream(total_buf.as_slices().0)
+                        {
+                            total_buf.consume(size);
+                            messages.push(message);
+                        }
+                        return Ok(if messages.is_empty() {
+                            None
+                        } else {
+                            Some(messages)
+                        });
                     }
                     _ => {
                         bail!("read error on stream : {}, error: {}", stream_id, e);
                     }
+                },
+            }
+        }
+    } else {
+        let mut total_buf = StreamSender::<BUFFER_SIZE>::new();
+        loop {
+            match connection.stream_recv(stream_id, &mut buf) {
+                Ok((read, _)) => {
+                    log::trace!("read {} on stream {}", read, stream_id);
+                    total_buf.append_bytes(&buf[..read]);
                 }
+                Err(e) => match &e {
+                    quiche::Error::Done => {
+                        let mut messages = vec![];
+                        if let Some((message, size)) =
+                            Message::from_binary_stream(total_buf.as_slices().0)
+                        {
+                            total_buf.consume(size);
+                            messages.push(message);
+                        }
+                        read_streams.insert(stream_id, total_buf);
+                        return Ok(if messages.is_empty() {
+                            None
+                        } else {
+                            Some(messages)
+                        });
+                    }
+                    _ => {
+                        bail!("read error on stream : {}, error: {}", stream_id, e);
+                    }
+                },
             }
         }
     }

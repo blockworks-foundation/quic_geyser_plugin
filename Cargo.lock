@@ -791,6 +791,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "circular-buffer"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b67261db007b5f4cf8cba393c1a5c511a5cc072339ce16e12aeba1d7b9b77946"
+
+[[package]]
 name = "clang-sys"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2933,6 +2939,7 @@ version = "0.1.5"
 dependencies = [
  "anyhow",
  "bincode",
+ "circular-buffer",
  "itertools",
  "log",
  "lz4",

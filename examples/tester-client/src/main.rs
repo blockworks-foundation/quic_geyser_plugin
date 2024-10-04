@@ -144,7 +144,7 @@ fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>
     std::thread::spawn(move || {
         let _client = client;
         while let Ok(message) = reciever.recv() {
-            let message_size = bincode::serialize(&message).unwrap().len();
+            let message_size = message.to_binary_stream().len();
             client_stats
                 .bytes_transfered
                 .fetch_add(message_size as u64, std::sync::atomic::Ordering::Relaxed);
@@ -242,21 +242,21 @@ async fn non_blocking(args: Args, client_stats: ClientStats, break_thread: Arc<A
     .unwrap();
     println!("Connected");
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    let mut filters = vec![Filter::Slot, Filter::BlockMeta];
-    if args.blocks_instead_of_accounts {
-        filters.push(Filter::BlockAll);
-    } else {
-        filters.push(Filter::AccountsAll);
-    }
+    // let mut filters = vec![Filter::Slot, Filter::BlockMeta];
+    // if args.blocks_instead_of_accounts {
+    //     filters.push(Filter::BlockAll);
+    // } else {
+    //     filters.push(Filter::AccountsAll);
+    // }
 
+    sleep(Duration::from_secs(5));
     println!("Subscribing");
-    client.subscribe(filters).await.unwrap();
+    client.subscribe(vec![Filter::AccountsAll]).await.unwrap();
     println!("Subscribed");
 
     tokio::spawn(async move {
         while let Some(message) = reciever.recv().await {
-            let message_size = bincode::serialize(&message).unwrap().len();
+            let message_size = message.to_binary_stream().len();
             client_stats
                 .bytes_transfered
                 .fetch_add(message_size as u64, std::sync::atomic::Ordering::Relaxed);

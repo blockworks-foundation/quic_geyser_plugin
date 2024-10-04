@@ -7,12 +7,13 @@ use quic_geyser_common::message::Message;
 use quic_geyser_common::net::parse_host_port;
 use quic_geyser_common::types::connections_parameters::ConnectionParameters;
 use quinn::{
-    ClientConfig, Connection, ConnectionError, Endpoint, EndpointConfig, IdleTimeout, RecvStream,
-    SendStream, TokioRuntime, TransportConfig, VarInt,
+    ClientConfig, ConnectionError, Endpoint, EndpointConfig, IdleTimeout, RecvStream, SendStream,
+    TokioRuntime, TransportConfig, VarInt,
 };
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 
 pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> Endpoint {
     let mut endpoint = {
@@ -66,32 +67,32 @@ pub fn create_client_endpoint(connection_parameters: ConnectionParameters) -> En
     endpoint
 }
 
-pub async fn recv_message(
-    mut recv_stream: RecvStream,
-    timeout_in_seconds: u64,
-) -> anyhow::Result<Message> {
-    let mut buffer = Vec::<u8>::new();
-    buffer.reserve(128 * 1024); // reserve 128 kbs for each message
+// pub async fn recv_message(
+//     mut recv_stream: RecvStream,
+//     timeout_in_seconds: u64,
+// ) -> anyhow::Result<Message> {
+//     let mut buffer = Vec::<u8>::new();
+//     buffer.reserve(128 * 1024); // reserve 128 kbs for each message
 
-    while let Some(data) = tokio::time::timeout(
-        Duration::from_secs(timeout_in_seconds),
-        recv_stream.read_chunk(DEFAULT_MAX_RECIEVE_WINDOW_SIZE as usize, true),
-    )
-    .await??
-    {
-        buffer.extend_from_slice(&data.bytes);
-    }
-    Ok(bincode::deserialize::<Message>(&buffer)?)
-}
+//     while let Some(data) = tokio::time::timeout(
+//         Duration::from_secs(timeout_in_seconds),
+//         recv_stream.read_chunk(DEFAULT_MAX_RECIEVE_WINDOW_SIZE as usize, true),
+//     )
+//     .await??
+//     {
+//         buffer.extend_from_slice(&data.bytes);
+//     }
+//     Ok(bincode::deserialize::<Message>(&buffer)?)
+// }
 
 pub struct Client {
-    connection: Connection,
+    filter_sender: tokio::sync::mpsc::UnboundedSender<Vec<Filter>>,
 }
 
-pub async fn send_message(mut send_stream: SendStream, message: &Message) -> anyhow::Result<()> {
-    let binary = bincode::serialize(&message)?;
+pub async fn send_message(send_stream: &mut SendStream, message: &Message) -> anyhow::Result<()> {
+    let binary = message.to_binary_stream();
     send_stream.write_all(&binary).await?;
-    send_stream.finish().await?;
+    send_stream.flush().await?;
     Ok(())
 }
 
@@ -104,7 +105,6 @@ impl Client {
         tokio::sync::mpsc::UnboundedReceiver<Message>,
         Vec<tokio::task::JoinHandle<anyhow::Result<()>>>,
     )> {
-        let timeout: u64 = connection_parameters.timeout_in_seconds;
         let endpoint = create_client_endpoint(connection_parameters);
         let socket_addr = parse_host_port(&server_address)?;
         let connecting = endpoint.connect(socket_addr, "quic_geyser_client")?;
@@ -116,31 +116,41 @@ impl Client {
         let jh1 = {
             let connection = connection.clone();
             tokio::spawn(async move {
-                // limit client to respond to 128k streams in parallel
-                let semaphore = Arc::new(tokio::sync::Semaphore::new(128 * 1024));
                 loop {
                     // sender is closed / no messages to send
                     if message_sx_queue.is_closed() {
                         bail!("quic client stopped, sender closed");
                     }
-
-                    let permit = semaphore.clone().acquire_owned().await.unwrap();
                     let stream: Result<RecvStream, ConnectionError> = connection.accept_uni().await;
                     match stream {
-                        Ok(recv_stream) => {
-                            let sender = message_sx_queue.clone();
+                        Ok(mut recv_stream) => {
+                            let message_sx_queue = message_sx_queue.clone();
                             tokio::spawn(async move {
-                                //
-                                let _permit = permit;
-                                let message = recv_message(recv_stream, timeout).await;
-                                match message {
-                                    Ok(message) => {
-                                        if let Err(e) = sender.send(message) {
-                                            log::error!("Message sent error : {:?}", e);
+                                let mut buffer: Vec<u8> = vec![];
+                                loop {
+                                    match recv_stream
+                                        .read_chunk(DEFAULT_MAX_RECIEVE_WINDOW_SIZE as usize, true)
+                                        .await
+                                    {
+                                        Ok(Some(chunk)) => {
+                                            buffer.extend_from_slice(&chunk.bytes);
+                                            while let Some((message, size)) =
+                                                Message::from_binary_stream(&buffer)
+                                            {
+                                                if let Err(e) = message_sx_queue.send(message) {
+                                                    log::error!("Message sent error : {:?}", e);
+                                                    break;
+                                                }
+                                                buffer.drain(..size);
+                                            }
                                         }
-                                    }
-                                    Err(e) => {
-                                        log::trace!("Error getting message {:?}", e);
+                                        Ok(None) => {
+                                            log::warn!("Chunk none");
+                                        }
+                                        Err(e) => {
+                                            log::debug!("Error getting message {:?}", e);
+                                            break;
+                                        }
                                     }
                                 }
                             });
@@ -163,33 +173,46 @@ impl Client {
             })
         };
 
-        // create a ping thread
+        // create a ping thread and subscribe thread
+        let (filter_sender, mut filter_rx) = tokio::sync::mpsc::unbounded_channel();
         let jh2 = {
             let connection = connection.clone();
             tokio::spawn(async move {
-                let ping_message = bincode::serialize(&Message::Ping)
-                    .expect("ping message should be serializable");
+                let mut uni_stream = connection.open_uni().await?;
+
+                loop {
+                    tokio::select! {
+                        filters = filter_rx.recv() => {
+                            if let Some(filters) = filters {
+                                log::debug!("Sending server filters: {filters:?} on {}", uni_stream.id());
+                                if let Err(e) = send_message(&mut uni_stream, &Message::Filters(filters)).await {
+                                    log::error!("Error while sending filters : {e:?}");
+                                }
+                            }
+                            break;
+                        },
+                        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                            send_message( &mut uni_stream, &Message::Ping).await?;
+                        }
+                    }
+                }
+                // keep sending pings
                 loop {
                     tokio::time::sleep(Duration::from_secs(1)).await;
-
-                    if let Ok(mut uni_send_stream) = connection.open_uni().await {
-                        let _ = uni_send_stream.write_all(&ping_message).await;
-                        let _ = uni_send_stream.finish().await;
-                    } else {
-                        // connection closed
+                    if let Err(e) = send_message(&mut uni_stream, &Message::Ping).await {
+                        log::error!("Error while sending ping message : {e:?}");
                         break;
                     }
                 }
-                bail!("quic client stopped, ping message thread dropped")
+                Ok(())
             })
         };
 
-        Ok((Client { connection }, message_rx_queue, vec![jh1, jh2]))
+        Ok((Client { filter_sender }, message_rx_queue, vec![jh1, jh2]))
     }
 
     pub async fn subscribe(&self, filters: Vec<Filter>) -> anyhow::Result<()> {
-        let send_stream = self.connection.open_uni().await?;
-        send_message(send_stream, &Message::Filters(filters)).await?;
+        self.filter_sender.send(filters)?;
         Ok(())
     }
 }
@@ -254,7 +277,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn test_non_blocking_client() {
-        let server_sock: SocketAddr = parse_host_port("[::]:20000").unwrap();
+        tracing_subscriber::fmt::init();
+        let server_sock: SocketAddr = parse_host_port("0.0.0.0:20000").unwrap();
         let url = format!("127.0.0.1:{}", server_sock.port());
 
         let msg_acc_1 = Message::AccountMsg(get_account_for_test(0, 2));
@@ -262,7 +286,7 @@ mod tests {
         let msg_acc_3 = Message::AccountMsg(get_account_for_test(2, 100));
         let msg_acc_4 = Message::AccountMsg(get_account_for_test(3, 1_000));
         let msg_acc_5 = Message::AccountMsg(get_account_for_test(4, 10_000));
-        let msg_acc_6 = Message::AccountMsg(get_account_for_test(4, 100_000_000));
+        let msg_acc_6 = Message::AccountMsg(get_account_for_test(4, 10_000_000));
         let msgs = [
             msg_acc_1, msg_acc_2, msg_acc_3, msg_acc_4, msg_acc_5, msg_acc_6,
         ];

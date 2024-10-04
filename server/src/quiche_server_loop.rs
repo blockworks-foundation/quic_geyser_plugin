@@ -1,13 +1,13 @@
 use std::{
     collections::HashMap,
-    net::SocketAddr,
-    net::UdpSocket,
+    net::{SocketAddr, UdpSocket},
     sync::{
         atomic::AtomicBool,
         mpsc::{self, Sender},
         Arc, Mutex, RwLock,
     },
-    time::{Duration, Instant},
+    time::Duration,
+    u64,
 };
 
 use anyhow::bail;
@@ -32,7 +32,7 @@ use quic_geyser_quiche_utils::{
     quiche_sender::{handle_writable, send_message},
     quiche_utils::{
         generate_cid_and_reset_token, get_next_unidi, handle_path_events, mint_token,
-        validate_token, PartialResponses,
+        validate_token, StreamSenderMap,
     },
 };
 
@@ -75,7 +75,7 @@ use crate::configure_server::configure_server;
 
 enum InternalMessage {
     Packet(quiche::RecvInfo, Vec<u8>),
-    ClientMessage(Arc<Vec<u8>>, u8),
+    ClientMessage(Vec<u8>, u8),
 }
 
 struct DispatchingData {
@@ -92,7 +92,7 @@ pub fn server_loop(
     compression_type: CompressionType,
     stop_laggy_client: bool,
 ) -> anyhow::Result<()> {
-    let maximum_concurrent_streams_id = u64::MAX;
+    let maximum_concurrent_streams = 32;
     let mut config = configure_server(quic_params)?;
 
     let socket = Arc::new(UdpSocket::bind(socket_addr)?);
@@ -165,7 +165,12 @@ pub fn server_loop(
         if !clients_lk.contains_key(&hdr.dcid) && !clients_lk.contains_key(&conn_id) {
             drop(clients_lk);
             if hdr.ty != quiche::Type::Initial {
-                log::error!("Packet is not Initial");
+                log::error!(
+                    "Packet is not Initial : {:?} for dicd : {:?} and connection_id: {:?}",
+                    hdr.ty,
+                    &hdr.dcid,
+                    conn_id
+                );
                 continue;
             }
 
@@ -257,7 +262,7 @@ pub fn server_loop(
                 clients_by_id.clone(),
                 client_message_rx,
                 filters.clone(),
-                maximum_concurrent_streams_id,
+                maximum_concurrent_streams,
                 stop_laggy_client,
                 quic_params.incremental_priority,
                 rng.clone(),
@@ -317,7 +322,7 @@ fn create_client_task(
     client_id_by_scid: Arc<Mutex<HashMap<ConnectionId<'static>, u64>>>,
     receiver: mpsc::Receiver<InternalMessage>,
     filters: Arc<RwLock<Vec<Filter>>>,
-    maximum_concurrent_streams_id: u64,
+    maximum_concurrent_streams: usize,
     stop_laggy_client: bool,
     incremental_priority: bool,
     rng: SystemRandom,
@@ -325,11 +330,11 @@ fn create_client_task(
     enable_gso: bool,
 ) {
     std::thread::spawn(move || {
-        let mut partial_responses = PartialResponses::new();
+        let mut stream_sender_map = StreamSenderMap::new();
         let mut read_streams = ReadStreams::new();
-        let mut next_stream: u64 = 3;
+        let first_stream_id = get_next_unidi(3, true, u64::MAX);
+        let mut next_stream: u64 = first_stream_id;
         let mut connection = connection;
-        let mut instance = Instant::now();
         let mut closed = false;
         let mut out = [0; 65535];
         let mut datagram_size = MAX_DATAGRAM_SIZE;
@@ -353,6 +358,7 @@ fn create_client_task(
 
                 match internal_message {
                     InternalMessage::Packet(info, mut buf) => {
+                        log::debug!("got packet : {}", buf.len());
                         // handle packet from udp socket
                         let buf = buf.as_mut_slice();
                         match connection.recv(buf, info) {
@@ -364,38 +370,58 @@ fn create_client_task(
                         };
                     }
                     InternalMessage::ClientMessage(message, priority) => {
+                        log::debug!("got message : {}", message.len());
+                        if closed {
+                            // connection is already closed
+                            continue;
+                        }
                         // handle message from client
-                        let stream_id = next_stream;
-                        next_stream =
-                            get_next_unidi(stream_id, true, maximum_concurrent_streams_id);
-
-                        let close = if let Err(e) =
-                            connection.stream_priority(stream_id, priority, incremental_priority)
-                        {
-                            if !closed {
-                                log::error!(
-                                    "Unable to set priority for the stream {}, error {}",
-                                    stream_id,
-                                    e
-                                );
+                        // create new stream is there are still streams to be used or else use the existing one with most capacity
+                        let stream_id = if stream_sender_map.len() < maximum_concurrent_streams {
+                            let stream_id_to_use = next_stream;
+                            next_stream = get_next_unidi(stream_id_to_use, true, u64::MAX);
+                            log::debug!("Creating new stream to use :{stream_id_to_use}");
+                            if stream_id_to_use == first_stream_id {
+                                // set high priority to first stream
+                                connection
+                                    .stream_priority(stream_id_to_use, 0, incremental_priority)
+                                    .unwrap();
+                            } else {
+                                connection
+                                    .stream_priority(stream_id_to_use, 1, incremental_priority)
+                                    .unwrap();
                             }
-                            true
+                            stream_id_to_use
                         } else {
-                            match send_message(
-                                &mut connection,
-                                &mut partial_responses,
-                                stream_id,
-                                message,
-                            ) {
-                                Ok(_) => {
-                                    // do nothing
-                                    false
-                                }
-                                Err(e) => {
-                                    // done writing / queue is full
-                                    log::error!("got error sending message client : {}", e);
-                                    true
-                                }
+                            // for high priority streams
+                            let stream_id = if priority == 0 {
+                                first_stream_id
+                            } else {
+                                let value = stream_sender_map
+                                    .iter()
+                                    .max_by(|x, y| x.1.capacity().cmp(&y.1.capacity()))
+                                    .unwrap()
+                                    .0;
+                                *value
+                            };
+                            log::debug!("Reusing stream {stream_id}");
+                            stream_id
+                        };
+
+                        let close = match send_message(
+                            &mut connection,
+                            &mut stream_sender_map,
+                            stream_id,
+                            message,
+                        ) {
+                            Ok(_) => {
+                                // do nothing
+                                false
+                            }
+                            Err(e) => {
+                                // done writing / queue is full
+                                log::error!("got error sending message client : {}", e);
+                                true
                             }
                         };
 
@@ -424,21 +450,27 @@ fn create_client_task(
                 for stream in connection.readable() {
                     let message = recv_message(&mut connection, &mut read_streams, stream);
                     match message {
-                        Ok(Some(message)) => match message {
-                            Message::Filters(mut f) => {
-                                let mut filter_lk = filters.write().unwrap();
-                                filter_lk.append(&mut f);
+                        Ok(Some(messages)) => {
+                            let mut filter_lk = filters.write().unwrap();
+                            for message in messages {
+                                match message {
+                                    Message::Filters(mut f) => {
+                                        filter_lk.append(&mut f);
+                                    }
+                                    Message::Ping => {
+                                        log::debug!("recieved ping from the client");
+                                    }
+                                    _ => {
+                                        log::error!("unknown message from the client");
+                                    }
+                                }
                             }
-                            Message::Ping => {
-                                log::debug!("recieved ping from the client");
-                            }
-                            _ => {
-                                log::error!("unknown message from the client");
-                            }
-                        },
+                        }
                         Ok(None) => {}
                         Err(e) => {
-                            log::error!("Error recieving message : {e}")
+                            log::error!("Error recieving message : {e}");
+                            // missed the message close the connection
+                            let _ = connection.close(true, 0, b"recv error");
                         }
                     }
                 }
@@ -450,7 +482,7 @@ fn create_client_task(
                 datagram_size = connection.max_send_udp_payload_size();
                 for stream_id in connection.writable() {
                     if let Err(e) =
-                        handle_writable(&mut connection, &mut partial_responses, stream_id)
+                        handle_writable(&mut connection, &mut stream_sender_map, stream_id)
                     {
                         if e == quiche::Error::Done {
                             break;
@@ -465,27 +497,23 @@ fn create_client_task(
                 }
             }
 
-            if instance.elapsed() > Duration::from_secs(1) {
-                log::debug!("other tasks");
-                instance = Instant::now();
-                handle_path_events(&mut connection);
+            handle_path_events(&mut connection);
 
-                // See whether source Connection IDs have been retired.
-                while let Some(retired_scid) = connection.retired_scid_next() {
-                    log::info!("Retiring source CID {:?}", retired_scid);
-                    client_id_by_scid.lock().unwrap().remove(&retired_scid);
+            // See whether source Connection IDs have been retired.
+            while let Some(retired_scid) = connection.retired_scid_next() {
+                log::info!("Retiring source CID {:?}", retired_scid);
+                client_id_by_scid.lock().unwrap().remove(&retired_scid);
+            }
+
+            // Provides as many CIDs as possible.
+            while connection.scids_left() > 0 {
+                let (scid, reset_token) = generate_cid_and_reset_token(&rng);
+
+                log::info!("providing new scid {scid:?}");
+                if connection.new_scid(&scid, reset_token, false).is_err() {
+                    break;
                 }
-
-                // Provides as many CIDs as possible.
-                while connection.scids_left() > 0 {
-                    let (scid, reset_token) = generate_cid_and_reset_token(&rng);
-
-                    log::info!("providing new scid {scid:?}");
-                    if connection.new_scid(&scid, reset_token, false).is_err() {
-                        break;
-                    }
-                    client_id_by_scid.lock().unwrap().insert(scid, client_id);
-                }
+                client_id_by_scid.lock().unwrap().insert(scid, client_id);
             }
 
             let mut send_message_to = None;
@@ -627,12 +655,12 @@ fn create_dispatching_thread(
                                 parent,
                                 commitment_config,
                             }),
-                            1,
+                            0,
                         )
                     }
                     ChannelMessage::BlockMeta(block_meta) => {
                         NUMBER_OF_BLOCKMETA_UPDATE.inc();
-                        (Message::BlockMetaMsg(block_meta), 2)
+                        (Message::BlockMetaMsg(block_meta), 0)
                     }
                     ChannelMessage::Transaction(transaction) => {
                         NUMBER_OF_TRANSACTION_UPDATES.inc();
@@ -643,9 +671,7 @@ fn create_dispatching_thread(
                         (Message::BlockMsg(block), 2)
                     }
                 };
-                let binary = Arc::new(
-                    bincode::serialize(&message).expect("Message should be serializable in binary"),
-                );
+                let binary = message.to_binary_stream();
                 for id in dispatching_connections.iter() {
                     let data = dispatching_connections_lk.get(id).unwrap();
                     if data

@@ -15,6 +15,7 @@ thiserror = {workspace = true}
 itertools = { workspace = true }
 lz4 = { workspace = true }
 bincode = { workspace = true }
+circular-buffer = {workspace = true}
 
 [dev-dependencies]
 rand = { workspace = true }

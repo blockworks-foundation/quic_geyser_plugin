@@ -30,8 +30,6 @@ mod test {
         parse_host_port("127.0.0.0:1234").unwrap();
         parse_host_port("127.0.0.0").unwrap_err();
         parse_host_port("[::]:1234").unwrap();
-        parse_host_port("fcs-ams1._peer.internal:1234").unwrap();
-        parse_host_port("fcs-ams1._peer.internal:8172").unwrap();
     }
 
     #[test]

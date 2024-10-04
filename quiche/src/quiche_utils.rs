@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, sync::Arc};
-
+use quic_geyser_common::stream_manager::StreamSender;
 use ring::rand::SecureRandom;
+use std::collections::BTreeMap;
 
 pub fn validate_token<'a>(
     src: &std::net::SocketAddr,
@@ -162,9 +162,7 @@ pub fn generate_cid_and_reset_token<T: SecureRandom>(
     (scid, reset_token)
 }
 
-pub struct PartialResponse {
-    pub message: Arc<Vec<u8>>,
-    pub written: usize,
-}
-
-pub type PartialResponses = BTreeMap<u64, PartialResponse>;
+// 16 MB per buffer
+pub const BUFFER_LEN: usize = 32 * 1024 * 1024;
+pub type StreamSenderWithDefaultCapacity = StreamSender<BUFFER_LEN>;
+pub type StreamSenderMap = BTreeMap<u64, StreamSenderWithDefaultCapacity>;
