@@ -311,6 +311,7 @@ mod tests {
                 // wait for client to connect and subscribe
                 sleep(Duration::from_secs(2));
                 for msg in msgs {
+                    log::info!("sending message");
                     let Message::AccountMsg(account) = msg else {
                         panic!("should never happen");
                     };
@@ -332,7 +333,7 @@ mod tests {
             })
         };
         // wait for server to start
-        sleep(Duration::from_millis(100));
+        sleep(Duration::from_millis(10));
 
         // server started
         let (client, mut reciever, _tasks) = Client::new(
@@ -348,7 +349,10 @@ mod tests {
         )
         .await
         .unwrap();
+
+        log::info!("subscribing");
         client.subscribe(vec![Filter::AccountsAll]).await.unwrap();
+        log::info!("subscribed");
         sleep(Duration::from_millis(100));
 
         for (cnt, message_sent) in msgs.iter().enumerate() {
