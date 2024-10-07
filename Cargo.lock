@@ -3031,6 +3031,8 @@ dependencies = [
  "lazy_static",
  "libc",
  "log",
+ "mio",
+ "mio_channel",
  "nix",
  "prometheus",
  "quic-geyser-common",

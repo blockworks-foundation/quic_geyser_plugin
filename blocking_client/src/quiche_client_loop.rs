@@ -309,7 +309,7 @@ mod tests {
     };
 
     use itertools::Itertools;
-    use quic_geyser_server::quiche_server_loop::server_loop;
+    use quic_geyser_server::quiche_server_loop_2::server_loop_2;
     use solana_sdk::{account::Account, pubkey::Pubkey};
 
     use quic_geyser_common::{
@@ -405,9 +405,9 @@ mod tests {
         );
 
         // server loop
-        let (server_send_queue, rx_sent_queue) = mpsc::channel::<ChannelMessage>();
+        let (server_send_queue, rx_sent_queue) = mio_channel::channel::<ChannelMessage>();
         let _server_loop_jh = std::thread::spawn(move || {
-            if let Err(e) = server_loop(
+            if let Err(e) = server_loop_2(
                 QuicParameters {
                     incremental_priority: true,
                     ..Default::default()
