@@ -48,7 +48,7 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     config.enable_early_data();
     config.grease(true);
     config.enable_hystart(true);
-    config.discover_pmtu(true);
+    config.discover_pmtu(quic_parameter.discover_pmtu);
 
     if use_bbr {
         config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
