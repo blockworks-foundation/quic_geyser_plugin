@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     compression::CompressionType,
     defaults::{
-        DEFAULT_ACK_EXPONENT, DEFAULT_CONNECTION_TIMEOUT, DEFAULT_ENABLE_GSO,
-        DEFAULT_ENABLE_PACING, DEFAULT_INCREMENTAL_PRIORITY, DEFAULT_MAX_ACK_DELAY,
-        DEFAULT_MAX_NB_CONNECTIONS, DEFAULT_MAX_RECIEVE_WINDOW_SIZE, DEFAULT_MAX_STREAMS,
-        DEFAULT_USE_CC_BBR,
+        DEFAULT_ACK_EXPONENT, DEFAULT_CONNECTION_TIMEOUT, DEFAULT_DISCOVER_PMTU,
+        DEFAULT_ENABLE_GSO, DEFAULT_ENABLE_PACING, DEFAULT_INCREMENTAL_PRIORITY,
+        DEFAULT_MAX_ACK_DELAY, DEFAULT_MAX_NB_CONNECTIONS, DEFAULT_MAX_RECIEVE_WINDOW_SIZE,
+        DEFAULT_MAX_STREAMS, DEFAULT_USE_CC_BBR,
     },
 };
 
@@ -66,6 +66,7 @@ pub struct QuicParameters {
     pub use_cc_bbr: bool,
     pub incremental_priority: bool,
     pub enable_gso: bool,
+    pub discover_pmtu: bool,
 }
 
 impl Default for QuicParameters {
@@ -81,6 +82,7 @@ impl Default for QuicParameters {
             use_cc_bbr: DEFAULT_USE_CC_BBR,
             incremental_priority: DEFAULT_INCREMENTAL_PRIORITY,
             enable_gso: DEFAULT_ENABLE_GSO,
+            discover_pmtu: DEFAULT_DISCOVER_PMTU,
         }
     }
 }

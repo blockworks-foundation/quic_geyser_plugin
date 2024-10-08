@@ -11,4 +11,5 @@ pub const DEFAULT_ENABLE_PACING: bool = true;
 pub const DEFAULT_USE_CC_BBR: bool = false;
 pub const DEFAULT_INCREMENTAL_PRIORITY: bool = true;
 pub const DEFAULT_ENABLE_GSO: bool = true;
+pub const DEFAULT_DISCOVER_PMTU: bool = true;
 pub const DEFAULT_PARALLEL_STREAMS: usize = 32;

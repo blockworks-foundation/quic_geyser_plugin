@@ -296,7 +296,10 @@ mod tests {
             std::thread::spawn(move || {
                 let config = ConfigQuicPlugin {
                     address: server_sock,
-                    quic_parameters: QuicParameters::default(),
+                    quic_parameters: QuicParameters {
+                        discover_pmtu: false,
+                        ..Default::default()
+                    },
                     compression_parameters: CompressionParameters {
                         compression_type: CompressionType::None,
                     },
