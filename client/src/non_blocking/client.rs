@@ -127,7 +127,7 @@ impl Client {
                             let message_sx_queue = message_sx_queue.clone();
                             tokio::spawn(async move {
                                 let mut buffer: Vec<u8> = vec![];
-                                loop {
+                                'read_loop: loop {
                                     match recv_stream
                                         .read_chunk(DEFAULT_MAX_RECIEVE_WINDOW_SIZE as usize, true)
                                         .await
@@ -139,7 +139,7 @@ impl Client {
                                             {
                                                 if let Err(e) = message_sx_queue.send(message) {
                                                     log::error!("Message sent error : {:?}", e);
-                                                    break;
+                                                    break 'read_loop;
                                                 }
                                                 buffer.drain(..size);
                                             }
