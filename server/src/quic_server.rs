@@ -3,7 +3,7 @@ use quic_geyser_common::{
 };
 use std::fmt::Debug;
 
-use super::quiche_server_loop_2::server_loop_2;
+use super::quiche_server_loop::server_loop;
 pub struct QuicServer {
     pub data_channel_sender: mio_channel::Sender<ChannelMessage>,
     pub quic_plugin_config: ConfigQuicPlugin,
@@ -24,7 +24,7 @@ impl QuicServer {
         let (data_channel_sender, data_channel_tx) = mio_channel::channel();
 
         let _server_loop_jh = std::thread::spawn(move || {
-            if let Err(e) = server_loop_2(
+            if let Err(e) = server_loop(
                 quic_parameters,
                 socket,
                 data_channel_tx,

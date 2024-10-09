@@ -1,40 +1,59 @@
-use std::{
-    collections::HashMap,
-    net::{SocketAddr, UdpSocket},
-    sync::{
-        atomic::AtomicBool,
-        mpsc::{self, Sender},
-        Arc, Mutex, RwLock,
-    },
-    time::Duration,
-    u64,
-};
+// Copyright (C) 2020, Cloudflare, Inc.
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//     * Redistributions of source code must retain the above copyright notice,
+//       this list of conditions and the following disclaimer.
+//
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+// IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+// THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+// PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+// LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use anyhow::bail;
+use crate::configure_server::configure_server;
 use itertools::Itertools;
-use nix::sys::socket::sockopt::ReusePort;
-use prometheus::{opts, register_int_gauge, IntGauge};
+use log::trace;
+use mio::Token;
+use prometheus::opts;
+use prometheus::register_int_gauge;
+use prometheus::IntGauge;
+use quic_geyser_common::channel_message::ChannelMessage;
+use quic_geyser_common::compression::CompressionType;
+use quic_geyser_common::config::QuicParameters;
+use quic_geyser_common::defaults::DEFAULT_PARALLEL_STREAMS;
+use quic_geyser_common::defaults::MAX_DATAGRAM_SIZE;
+use quic_geyser_common::filters::Filter;
+use quic_geyser_common::message::Message;
+use quic_geyser_common::types::account::Account;
+use quic_geyser_common::types::block_meta::SlotMeta;
+use quic_geyser_common::types::slot_identifier::SlotIdentifier;
+use quic_geyser_quiche_utils::quiche_reciever::recv_message;
+use quic_geyser_quiche_utils::quiche_reciever::ReadStreams;
+use quic_geyser_quiche_utils::quiche_sender::handle_writable;
+use quic_geyser_quiche_utils::quiche_sender::send_message;
+use quic_geyser_quiche_utils::quiche_utils::generate_cid_and_reset_token;
+use quic_geyser_quiche_utils::quiche_utils::get_next_unidi;
+use quic_geyser_quiche_utils::quiche_utils::StreamSenderMap;
 use quiche::ConnectionId;
-use ring::rand::SystemRandom;
-
-use quic_geyser_common::{
-    channel_message::ChannelMessage,
-    compression::CompressionType,
-    config::QuicParameters,
-    defaults::MAX_DATAGRAM_SIZE,
-    filters::Filter,
-    message::Message,
-    types::{account::Account, block_meta::SlotMeta, slot_identifier::SlotIdentifier},
-};
-
-use quic_geyser_quiche_utils::{
-    quiche_reciever::{recv_message, ReadStreams},
-    quiche_sender::{handle_writable, send_message},
-    quiche_utils::{
-        generate_cid_and_reset_token, get_next_unidi, handle_path_events, mint_token,
-        validate_token, StreamSenderMap,
-    },
-};
+use ring::rand::*;
+use std::collections::HashMap;
+use std::io;
+use std::net;
+use std::net::SocketAddr;
 
 lazy_static::lazy_static! {
     static ref NUMBER_OF_CLIENTS: IntGauge =
@@ -71,41 +90,87 @@ lazy_static::lazy_static! {
        register_int_gauge!(opts!("quic_plugin_nb_block_updates", "Number of block updates")).unwrap();
 }
 
-use crate::configure_server::configure_server;
+pub type ClientId = u64;
 
-enum InternalMessage {
-    Packet(quiche::RecvInfo, Vec<u8>),
-    ClientMessage(Vec<u8>, u8),
+pub struct Client {
+    pub conn: quiche::Connection,
+    pub client_id: ClientId,
+    pub partial_requests: ReadStreams,
+    pub partial_responses: StreamSenderMap,
+    pub max_datagram_size: usize,
+    pub loss_rate: f64,
+    pub max_send_burst: usize,
+    pub connected: bool,
+    pub closed: bool,
+    pub filters: Vec<Filter>,
+    pub next_stream: u64,
 }
 
-struct DispatchingData {
-    pub sender: Sender<InternalMessage>,
-    pub filters: Arc<RwLock<Vec<Filter>>>,
+pub type ClientIdMap = HashMap<ConnectionId<'static>, ClientId>;
+pub type ClientMap = HashMap<ClientId, Client>;
+
+fn channel_message_to_message_priority(
+    message: ChannelMessage,
+    compression_type: CompressionType,
+) -> (Message, u8) {
+    match message {
+        ChannelMessage::Account(account, slot, _init) => {
+            NUMBER_OF_ACCOUNT_UPDATES.inc();
+            let slot_identifier = SlotIdentifier { slot };
+            let geyser_account = Account::new(
+                account.pubkey,
+                account.account,
+                compression_type,
+                slot_identifier,
+                account.write_version,
+            );
+
+            (Message::AccountMsg(geyser_account), 3)
+        }
+        ChannelMessage::Slot(slot, parent, commitment_config) => {
+            NUMBER_OF_SLOT_UPDATES.inc();
+            (
+                Message::SlotMsg(SlotMeta {
+                    slot,
+                    parent,
+                    commitment_config,
+                }),
+                0,
+            )
+        }
+        ChannelMessage::BlockMeta(block_meta) => {
+            NUMBER_OF_BLOCKMETA_UPDATE.inc();
+            (Message::BlockMetaMsg(block_meta), 0)
+        }
+        ChannelMessage::Transaction(transaction) => {
+            NUMBER_OF_TRANSACTION_UPDATES.inc();
+            (Message::TransactionMsg(transaction), 3)
+        }
+        ChannelMessage::Block(block) => {
+            NUMBER_OF_BLOCK_UPDATES.inc();
+            (Message::BlockMsg(block), 2)
+        }
+    }
 }
-
-type DispachingConnections = Arc<Mutex<HashMap<ConnectionId<'static>, DispatchingData>>>;
-
 pub fn server_loop(
     quic_params: QuicParameters,
     socket_addr: SocketAddr,
-    message_send_queue: mpsc::Receiver<ChannelMessage>,
+    mut message_send_queue: mio_channel::Receiver<ChannelMessage>,
     compression_type: CompressionType,
     stop_laggy_client: bool,
 ) -> anyhow::Result<()> {
-    let maximum_concurrent_streams = 32;
     let mut config = configure_server(quic_params)?;
+    let incremental_priority = quic_params.incremental_priority;
 
-    let socket = Arc::new(UdpSocket::bind(socket_addr)?);
     let mut buf = [0; 65535];
-    let mut out = [0; MAX_DATAGRAM_SIZE];
+    let mut out = [0; 65535];
 
-    let local_addr = socket.local_addr()?;
-    let rng = SystemRandom::new();
-    let conn_id_seed = ring::hmac::Key::generate(ring::hmac::HMAC_SHA256, &rng).unwrap();
-    let mut client_messsage_channel_by_id: HashMap<u64, mpsc::Sender<InternalMessage>> =
-        HashMap::new();
-    let clients_by_id: Arc<Mutex<HashMap<ConnectionId<'static>, u64>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    // Setup the event loop.
+    let mut poll = mio::Poll::new().unwrap();
+    let mut events = mio::Events::with_capacity(1024);
+
+    // Create the UDP listening socket, and register it with the event loop.
+    let mut socket = mio::net::UdpSocket::bind(socket_addr).unwrap();
 
     let enable_pacing = if quic_params.enable_pacing {
         set_txtime_sockopt(&socket).is_ok()
@@ -119,275 +184,84 @@ pub fn server_loop(
         false
     };
 
-    log::info!("pacing is enabled on server : {enable_pacing:?}");
+    poll.registry()
+        .register(&mut socket, mio::Token(0), mio::Interest::READABLE)
+        .unwrap();
+    poll.registry()
+        .register(
+            &mut message_send_queue,
+            mio::Token(1),
+            mio::Interest::READABLE,
+        )
+        .unwrap();
 
-    let dispatching_connections: DispachingConnections = Arc::new(Mutex::new(HashMap::<
-        ConnectionId<'static>,
-        DispatchingData,
-    >::new()));
+    let rng = SystemRandom::new();
+    let conn_id_seed = ring::hmac::Key::generate(ring::hmac::HMAC_SHA256, &rng).unwrap();
 
-    create_dispatching_thread(
-        message_send_queue,
-        dispatching_connections.clone(),
-        compression_type,
-    );
-    let mut client_id_counter = 0;
+    let mut next_client_id = 0;
+    let mut clients_ids = ClientIdMap::new();
+    let mut clients = ClientMap::new();
+
+    let mut continue_write = false;
+
+    let local_addr = socket.local_addr().unwrap();
+    let first_stream = get_next_unidi(3, true, u64::MAX);
 
     loop {
-        let (len, from) = match socket.recv_from(&mut buf) {
-            Ok(v) => v,
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::WouldBlock {
-                    break;
-                }
-                bail!("recv() failed: {:?}", e);
-            }
+        // Find the shorter timeout from all the active connections.
+        //
+        // TODO: use event loop that properly supports timers
+        let timeout = match continue_write {
+            true => Some(std::time::Duration::from_secs(0)),
+            false => clients.values().filter_map(|c| c.conn.timeout()).min(),
         };
 
-        NUMBER_OF_BYTES_READ.add(len as i64);
-        NUMBER_OF_READ_COUNT.inc();
-        let pkt_buf = &mut buf[..len];
-
-        // Parse the QUIC packet's header.
-        let hdr = match quiche::Header::from_slice(pkt_buf, quiche::MAX_CONN_ID_LEN) {
-            Ok(v) => v,
-
-            Err(e) => {
-                log::error!("Parsing packet header failed: {:?}", e);
-                continue;
-            }
-        };
-
-        let conn_id = ring::hmac::sign(&conn_id_seed, &hdr.dcid);
-        let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
-        let conn_id: ConnectionId<'static> = conn_id.to_vec().into();
-        let mut clients_lk = clients_by_id.lock().unwrap();
-        if !clients_lk.contains_key(&hdr.dcid) && !clients_lk.contains_key(&conn_id) {
-            drop(clients_lk);
-            if hdr.ty != quiche::Type::Initial {
-                log::error!(
-                    "Packet is not Initial : {:?} for dicd : {:?} and connection_id: {:?}",
-                    hdr.ty,
-                    &hdr.dcid,
-                    conn_id
-                );
-                continue;
-            }
-
-            if !quiche::version_is_supported(hdr.version) {
-                log::warn!("Doing version negotiation");
-                let len = quiche::negotiate_version(&hdr.scid, &hdr.dcid, &mut out).unwrap();
-
-                let out = &out[..len];
-
-                if let Err(e) = socket.send_to(out, from) {
-                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                        break;
-                    }
-                    panic!("send() failed: {:?}", e);
-                }
-                continue;
-            }
-
-            let mut scid = [0; quiche::MAX_CONN_ID_LEN];
-            scid.copy_from_slice(&conn_id);
-
-            let scid = quiche::ConnectionId::from_ref(&scid);
-
-            // Token is always present in Initial packets.
-            let token = hdr.token.as_ref().unwrap();
-
-            // Do stateless retry if the client didn't send a token.
-            if token.is_empty() {
-                log::debug!("Doing stateless retry");
-
-                let new_token = mint_token(&hdr, &from);
-
-                let len = quiche::retry(
-                    &hdr.scid,
-                    &hdr.dcid,
-                    &scid,
-                    &new_token,
-                    hdr.version,
-                    &mut out,
-                )
-                .unwrap();
-
-                if let Err(e) = socket.send_to(&out[..len], from) {
-                    log::error!("Error sending retry messages : {e:?}");
-                }
-                continue;
-            }
-
-            let odcid = validate_token(&from, token);
-
-            if odcid.is_none() {
-                log::error!("Invalid address validation token");
-                continue;
-            }
-
-            if scid.len() != hdr.dcid.len() {
-                log::error!("Invalid destination connection ID");
-                continue;
-            }
-
-            let scid = hdr.dcid.clone();
-
-            log::info!("New connection: dcid={:?} scid={:?}", hdr.dcid, scid);
-
-            let mut conn = quiche::accept(&scid, odcid.as_ref(), local_addr, from, &mut config)?;
-
-            let recv_info = quiche::RecvInfo {
-                to: socket.local_addr().unwrap(),
-                from,
-            };
-            // Process potentially coalesced packets.
-            match conn.recv(pkt_buf, recv_info) {
-                Ok(v) => v,
-                Err(e) => {
-                    log::error!("{} recv failed: {:?}", conn.trace_id(), e);
-                    continue;
-                }
-            };
-
-            let (client_message_sx, client_message_rx) = mpsc::channel();
-            let current_client_id = client_id_counter;
-            client_id_counter += 1;
-
-            let filters = Arc::new(RwLock::new(Vec::new()));
-            create_client_task(
-                socket.clone(),
-                conn,
-                current_client_id,
-                clients_by_id.clone(),
-                client_message_rx,
-                filters.clone(),
-                maximum_concurrent_streams,
-                stop_laggy_client,
-                quic_params.incremental_priority,
-                rng.clone(),
-                enable_pacing,
-                enable_gso,
-            );
-            let mut lk = dispatching_connections.lock().unwrap();
-            lk.insert(
-                scid.clone(),
-                DispatchingData {
-                    sender: client_message_sx.clone(),
-                    filters,
-                },
-            );
-            let mut clients_lk = clients_by_id.lock().unwrap();
-            clients_lk.insert(scid, current_client_id);
-            client_messsage_channel_by_id.insert(current_client_id, client_message_sx);
-        } else {
-            // get the existing client
-            let client_id = match clients_lk.get(&hdr.dcid) {
-                Some(v) => *v,
-                None => *clients_lk
-                    .get(&conn_id)
-                    .expect("The client should exist in the map"),
-            };
-
-            let recv_info = quiche::RecvInfo {
-                to: socket.local_addr().unwrap(),
-                from,
-            };
-            match client_messsage_channel_by_id.get_mut(&client_id) {
-                Some(channel) => {
-                    if channel
-                        .send(InternalMessage::Packet(recv_info, pkt_buf.to_vec()))
-                        .is_err()
-                    {
-                        // client is closed
-                        clients_lk.remove(&hdr.dcid);
-                        clients_lk.remove(&conn_id);
-                        client_messsage_channel_by_id.remove(&client_id);
-                    }
-                }
-                None => {
-                    log::error!("channel with client id {client_id} not found");
-                }
-            }
-        };
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn create_client_task(
-    socket: Arc<UdpSocket>,
-    connection: quiche::Connection,
-    client_id: u64,
-    client_id_by_scid: Arc<Mutex<HashMap<ConnectionId<'static>, u64>>>,
-    receiver: mpsc::Receiver<InternalMessage>,
-    filters: Arc<RwLock<Vec<Filter>>>,
-    maximum_concurrent_streams: usize,
-    stop_laggy_client: bool,
-    incremental_priority: bool,
-    rng: SystemRandom,
-    enable_pacing: bool,
-    enable_gso: bool,
-) {
-    std::thread::spawn(move || {
-        let mut stream_sender_map = StreamSenderMap::new();
-        let mut read_streams = ReadStreams::new();
-        let first_stream_id = get_next_unidi(3, true, u64::MAX);
-        let mut next_stream: u64 = first_stream_id;
-        let mut connection = connection;
-        let mut closed = false;
-        let mut out = [0; 65535];
-        let mut datagram_size = MAX_DATAGRAM_SIZE;
-        let mut logged_is_draining = false;
-        let quit = Arc::new(AtomicBool::new(false));
-
-        let mut continue_write = true;
-        NUMBER_OF_CLIENTS.inc();
-        loop {
-            let mut timeout = if continue_write {
-                Duration::from_secs(0)
+        let mut poll_res = poll.poll(&mut events, timeout);
+        while let Err(e) = poll_res.as_ref() {
+            if e.kind() == std::io::ErrorKind::Interrupted {
+                log::trace!("mio poll() call failed, retrying: {:?}", e);
+                poll_res = poll.poll(&mut events, timeout);
             } else {
-                connection.timeout().unwrap_or(Duration::from_secs(1))
-            };
+                panic!("mio poll() call failed fatally: {:?}", e);
+            }
+        }
 
-            let mut did_read = false;
-
-            while let Ok(internal_message) = receiver.recv_timeout(timeout) {
-                did_read = true;
-                timeout = Duration::from_secs(0);
-
-                match internal_message {
-                    InternalMessage::Packet(info, mut buf) => {
-                        log::debug!("got packet : {}", buf.len());
-                        // handle packet from udp socket
-                        let buf = buf.as_mut_slice();
-                        match connection.recv(buf, info) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                log::error!("{} recv failed: {:?}", connection.trace_id(), e);
-                                break;
-                            }
-                        };
-                    }
-                    InternalMessage::ClientMessage(message, priority) => {
-                        log::debug!("got message : {}", message.len());
-                        if closed {
-                            // connection is already closed
-                            continue;
+        if events.iter().any(|x| x.token() == Token(1)) {
+            // dispactch messages to appropriate queues
+            while let Ok(message) = message_send_queue.try_recv() {
+                let dispatching_connections = clients
+                    .iter_mut()
+                    .filter_map(|(_id, x)| {
+                        if !x.connected || x.closed {
+                            None
+                        } else if x.filters.iter().any(|x| x.allows(&message)) {
+                            Some(x)
+                        } else {
+                            None
                         }
-                        // handle message from client
-                        // create new stream is there are still streams to be used or else use the existing one with most capacity
-                        let stream_id = if stream_sender_map.len() < maximum_concurrent_streams {
-                            let stream_id_to_use = next_stream;
-                            next_stream = get_next_unidi(stream_id_to_use, true, u64::MAX);
+                    })
+                    .collect_vec();
+
+                if !dispatching_connections.is_empty() {
+                    let (message, priority) =
+                        channel_message_to_message_priority(message, compression_type);
+                    let binary = message.to_binary_stream();
+                    for client in dispatching_connections {
+                        log::debug!("sending message :{message:?} to {}", client.client_id);
+                        let stream_id = if client.partial_responses.len() < DEFAULT_PARALLEL_STREAMS
+                        {
+                            let stream_id_to_use = client.next_stream;
+                            client.next_stream = get_next_unidi(stream_id_to_use, true, u64::MAX);
                             log::debug!("Creating new stream to use :{stream_id_to_use}");
-                            if stream_id_to_use == first_stream_id {
+                            if stream_id_to_use == first_stream {
                                 // set high priority to first stream
-                                connection
+                                client
+                                    .conn
                                     .stream_priority(stream_id_to_use, 0, incremental_priority)
                                     .unwrap();
                             } else {
-                                connection
+                                client
+                                    .conn
                                     .stream_priority(stream_id_to_use, 1, incremental_priority)
                                     .unwrap();
                             }
@@ -395,9 +269,10 @@ fn create_client_task(
                         } else {
                             // for high priority streams
                             let stream_id = if priority == 0 {
-                                first_stream_id
+                                first_stream
                             } else {
-                                let value = stream_sender_map
+                                let value = client
+                                    .partial_responses
                                     .iter()
                                     .max_by(|x, y| x.1.capacity().cmp(&y.1.capacity()))
                                     .unwrap()
@@ -409,10 +284,10 @@ fn create_client_task(
                         };
 
                         let close = match send_message(
-                            &mut connection,
-                            &mut stream_sender_map,
+                            &mut client.conn,
+                            &mut client.partial_responses,
                             stream_id,
-                            message,
+                            binary.clone(),
                         ) {
                             Ok(_) => {
                                 // do nothing
@@ -425,37 +300,228 @@ fn create_client_task(
                             }
                         };
 
-                        if close && !closed && stop_laggy_client {
-                            if let Err(e) = connection.close(true, 1, b"laggy client") {
+                        if close && stop_laggy_client {
+                            if let Err(e) = client.conn.close(true, 1, b"laggy client") {
                                 if e != quiche::Error::Done {
                                     log::error!("error closing client : {}", e);
                                 }
                             } else {
-                                log::info!("Stopping laggy client : {}", connection.trace_id(),);
+                                log::info!("Stopping laggy client : {}", client.conn.trace_id(),);
                             }
-                            closed = true;
+                            client.closed = true;
                             break;
                         }
                     }
                 }
             }
 
-            if !did_read && !continue_write {
-                connection.on_timeout();
+            // if all are channel events // continue
+            if events.iter().all(|x| x.token() == Token(1)) {
+                continue;
             }
-            continue_write = false;
+        }
 
-            if connection.is_in_early_data() || connection.is_established() {
+        // Read incoming UDP packets from the socket and feed them to quiche,
+        // until there are no more packets to read.
+        'read: loop {
+            // If the event loop reported no events, it means that the timeout
+            // has expired, so handle it without attempting to read packets. We
+            // will then proceed with the send loop.
+            if events.is_empty() && !continue_write {
+                log::trace!("timed out");
+
+                clients.values_mut().for_each(|c| c.conn.on_timeout());
+
+                break 'read;
+            }
+
+            let (len, from) = match socket.recv_from(&mut buf) {
+                Ok(v) => v,
+
+                Err(e) => {
+                    // There are no more UDP packets to read, so end the read
+                    // loop.
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        log::trace!("recv() would block");
+                        break 'read;
+                    }
+
+                    panic!("recv() failed: {:?}", e);
+                }
+            };
+
+            log::trace!("got {} bytes", len);
+            NUMBER_OF_BYTES_READ.add(len as i64);
+
+            let pkt_buf = &mut buf[..len];
+
+            // Parse the QUIC packet's header.
+            let hdr = match quiche::Header::from_slice(pkt_buf, quiche::MAX_CONN_ID_LEN) {
+                Ok(v) => v,
+                Err(e) => {
+                    log::error!("Parsing packet header failed: {:?}", e);
+                    continue 'read;
+                }
+            };
+            log::trace!("got packet {:?}", hdr);
+            let conn_id = if !cfg!(feature = "fuzzing") {
+                let conn_id = ring::hmac::sign(&conn_id_seed, &hdr.dcid);
+                let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
+                conn_id.to_vec().into()
+            } else {
+                // When fuzzing use an all zero connection ID.
+                [0; quiche::MAX_CONN_ID_LEN].to_vec().into()
+            };
+
+            // Lookup a connection based on the packet's connection ID. If there
+            // is no connection matching, create a new one.
+            let client = if !clients_ids.contains_key(&hdr.dcid)
+                && !clients_ids.contains_key(&conn_id)
+            {
+                if hdr.ty != quiche::Type::Initial {
+                    log::error!("Packet is not Initial");
+                    continue 'read;
+                }
+
+                if !quiche::version_is_supported(hdr.version) {
+                    log::warn!("Doing version negotiation");
+                    let len = quiche::negotiate_version(&hdr.scid, &hdr.dcid, &mut out).unwrap();
+
+                    let out = &out[..len];
+
+                    if let Err(e) = socket.send_to(out, from) {
+                        if e.kind() == std::io::ErrorKind::WouldBlock {
+                            log::trace!("send() would block");
+                            break;
+                        }
+
+                        panic!("send() failed: {:?}", e);
+                    }
+                    continue 'read;
+                }
+
+                let mut scid = [0; quiche::MAX_CONN_ID_LEN];
+                scid.copy_from_slice(&conn_id);
+
+                // Token is always present in Initial packets.
+                let token = hdr.token.as_ref().unwrap();
+
+                // Do stateless retry if the client didn't send a token.
+                if token.is_empty() {
+                    log::debug!("Doing stateless retry");
+                    let scid = quiche::ConnectionId::from_ref(&scid);
+                    let new_token = mint_token(&hdr, &from);
+
+                    let len = quiche::retry(
+                        &hdr.scid,
+                        &hdr.dcid,
+                        &scid,
+                        &new_token,
+                        hdr.version,
+                        &mut out,
+                    )
+                    .unwrap();
+
+                    let out = &out[..len];
+
+                    if let Err(e) = socket.send_to(out, from) {
+                        if e.kind() == std::io::ErrorKind::WouldBlock {
+                            log::trace!("send() would block");
+                            break;
+                        }
+                        panic!("send() failed: {:?}", e);
+                    }
+                    continue 'read;
+                }
+
+                let odcid = validate_token(&from, token);
+
+                // The token was not valid, meaning the retry failed, so
+                // drop the packet.
+                if odcid.is_none() {
+                    log::error!("Invalid address validation token");
+                    continue;
+                }
+                if scid.len() != hdr.dcid.len() {
+                    log::error!("Invalid destination connection ID");
+                    continue 'read;
+                }
+                // Reuse the source connection ID we sent in the Retry
+                // packet, instead of changing it again.
+                scid.copy_from_slice(&hdr.dcid);
+
+                let scid = quiche::ConnectionId::from_vec(scid.to_vec());
+
+                log::debug!("New connection: dcid={:?} scid={:?}", hdr.dcid, scid);
+                #[allow(unused_mut)]
+                let mut conn =
+                    quiche::accept(&scid, odcid.as_ref(), local_addr, from, &mut config).unwrap();
+
+                let client_id = next_client_id;
+
+                let client = Client {
+                    conn,
+                    client_id,
+                    partial_requests: ReadStreams::new(),
+                    partial_responses: StreamSenderMap::new(),
+                    max_datagram_size: MAX_DATAGRAM_SIZE,
+                    loss_rate: 0.0,
+                    max_send_burst: MAX_DATAGRAM_SIZE * 10,
+                    connected: false,
+                    closed: false,
+                    filters: vec![],
+                    next_stream: first_stream,
+                };
+                NUMBER_OF_CLIENTS.inc();
+                clients.insert(client_id, client);
+                clients_ids.insert(scid.clone(), client_id);
+
+                next_client_id += 1;
+
+                clients.get_mut(&client_id).unwrap()
+            } else {
+                let cid = match clients_ids.get(&hdr.dcid) {
+                    Some(v) => v,
+
+                    None => clients_ids.get(&conn_id).unwrap(),
+                };
+
+                clients.get_mut(cid).unwrap()
+            };
+
+            let recv_info = quiche::RecvInfo {
+                to: local_addr,
+                from,
+            };
+
+            // Process potentially coalesced packets.
+            let read = match client.conn.recv(pkt_buf, recv_info) {
+                Ok(v) => v,
+
+                Err(e) => {
+                    log::error!("{} recv failed: {:?}", client.conn.trace_id(), e);
+                    continue 'read;
+                }
+            };
+
+            log::trace!("{} processed {} bytes", client.conn.trace_id(), read);
+
+            if !client.connected && client.conn.is_established() {
+                client.connected = true;
+            }
+
+            if client.conn.is_in_early_data() || client.conn.is_established() {
                 // Process all readable streams.
-                for stream in connection.readable() {
-                    let message = recv_message(&mut connection, &mut read_streams, stream);
+                for stream in client.conn.readable() {
+                    NUMBER_OF_READ_COUNT.inc();
+                    let message =
+                        recv_message(&mut client.conn, &mut client.partial_requests, stream);
                     match message {
                         Ok(Some(messages)) => {
-                            let mut filter_lk = filters.write().unwrap();
                             for message in messages {
                                 match message {
                                     Message::Filters(mut f) => {
-                                        filter_lk.append(&mut f);
+                                        client.filters.append(&mut f);
                                     }
                                     Message::Ping => {
                                         log::debug!("recieved ping from the client");
@@ -470,225 +536,322 @@ fn create_client_task(
                         Err(e) => {
                             log::error!("Error recieving message : {e}");
                             // missed the message close the connection
-                            let _ = connection.close(true, 0, b"recv error");
+                            let _ = client.conn.close(true, 0, b"recv error");
+                            client.closed = true;
                         }
                     }
                 }
             }
 
-            if !connection.is_closed()
-                && (connection.is_established() || connection.is_in_early_data())
+            if !client.conn.is_closed()
+                && (client.conn.is_established() || client.conn.is_in_early_data())
             {
-                datagram_size = connection.max_send_udp_payload_size();
-                for stream_id in connection.writable() {
+                // Update max_datagram_size after connection established.
+                client.max_datagram_size = client.conn.max_send_udp_payload_size();
+
+                for stream_id in client.conn.writable() {
+                    NUMBER_OF_WRITE_COUNT.inc();
                     if let Err(e) =
-                        handle_writable(&mut connection, &mut stream_sender_map, stream_id)
+                        handle_writable(&mut client.conn, &mut client.partial_responses, stream_id)
                     {
                         if e == quiche::Error::Done {
                             break;
                         }
-                        if !closed {
+                        if !client.closed {
                             log::error!("Error writing {e:?}");
-                            let _ = connection.close(true, 1, b"stream stopped");
-                            closed = true;
+                            let _ = client.conn.close(true, 1, b"stream stopped");
+                            client.closed = true;
                             break;
                         }
                     }
                 }
             }
 
-            handle_path_events(&mut connection);
+            handle_path_events(client);
 
             // See whether source Connection IDs have been retired.
-            while let Some(retired_scid) = connection.retired_scid_next() {
+            while let Some(retired_scid) = client.conn.retired_scid_next() {
                 log::info!("Retiring source CID {:?}", retired_scid);
-                client_id_by_scid.lock().unwrap().remove(&retired_scid);
+                clients_ids.remove(&retired_scid);
             }
 
             // Provides as many CIDs as possible.
-            while connection.scids_left() > 0 {
+            while client.conn.scids_left() > 0 {
                 let (scid, reset_token) = generate_cid_and_reset_token(&rng);
-
-                log::info!("providing new scid {scid:?}");
-                if connection.new_scid(&scid, reset_token, false).is_err() {
+                if client.conn.new_scid(&scid, reset_token, false).is_err() {
                     break;
                 }
-                client_id_by_scid.lock().unwrap().insert(scid, client_id);
+
+                clients_ids.insert(scid, client.client_id);
+            }
+        }
+
+        // Generate outgoing QUIC packets for all active connections and send
+        // them on the UDP socket, until quiche reports that there are no more
+        // packets to be sent.
+        continue_write = false;
+        for client in clients.values_mut() {
+            // Reduce max_send_burst by 25% if loss is increasing more than 0.1%.
+            let loss_rate = client.conn.stats().lost as f64 / client.conn.stats().sent as f64;
+            if loss_rate > client.loss_rate + 0.001 {
+                client.max_send_burst = client.max_send_burst / 4 * 3;
+                // Minimun bound of 10xMSS.
+                client.max_send_burst = client.max_send_burst.max(client.max_datagram_size * 10);
+                client.loss_rate = loss_rate;
             }
 
-            let mut send_message_to = None;
-            let mut total_length = 0;
+            let max_send_burst = client.conn.send_quantum().min(client.max_send_burst)
+                / client.max_datagram_size
+                * client.max_datagram_size;
+            let mut total_write = 0;
+            let mut dst_info = None;
 
-            let max_burst_size = if enable_gso {
-                std::cmp::min(datagram_size * 10, out.len())
-            } else {
-                datagram_size
-            };
+            while total_write < max_send_burst {
+                let (write, send_info) =
+                    match client.conn.send(&mut out[total_write..max_send_burst]) {
+                        Ok(v) => v,
 
-            while total_length < max_burst_size {
-                match connection.send(&mut out[total_length..max_burst_size]) {
-                    Ok((len, send_info)) => {
-                        send_message_to.get_or_insert(send_info);
-                        total_length += len;
-                        if len < datagram_size {
+                        Err(quiche::Error::Done) => {
+                            trace!("{} done writing", client.conn.trace_id());
                             break;
                         }
-                    }
-                    Err(quiche::Error::BufferTooShort) => {
-                        // retry later
-                        log::trace!("{} buffer to short", connection.trace_id());
-                        break;
-                    }
-                    Err(quiche::Error::Done) => {
-                        break;
-                    }
-                    Err(e) => {
-                        log::error!(
-                            "{} send failed: {:?}, closing connection",
-                            connection.trace_id(),
-                            e
-                        );
-                        connection.close(false, 0x1, b"fail").ok();
-                    }
-                };
-            }
 
-            if total_length > 0 && send_message_to.is_some() {
-                log::debug!("sending :{total_length:?}");
-                continue_write = true;
-                NUMBER_OF_BYTES_SENT.add(total_length as i64);
-                NUMBER_OF_WRITE_COUNT.inc();
-                let send_result = if enable_pacing {
-                    send_with_pacing(
-                        &socket,
-                        &out[..total_length],
-                        &send_message_to.unwrap(),
-                        enable_gso,
-                        datagram_size as u16,
-                    )
-                } else {
-                    socket.send(&out[..total_length])
-                };
-                match send_result {
-                    Ok(_written) => {
-                        log::debug!("finished sending");
-                    }
-                    Err(e) => {
-                        log::error!("sending failed with error : {e:?}");
-                    }
+                        Err(e) => {
+                            log::error!("{} send failed: {:?}", client.conn.trace_id(), e);
+
+                            client.conn.close(false, 0x1, b"fail").ok();
+                            break;
+                        }
+                    };
+
+                total_write += write;
+
+                // Use the first packet time to send, not the last.
+                let _ = dst_info.get_or_insert(send_info);
+
+                if write < client.max_datagram_size {
+                    continue_write = true;
+                    break;
                 }
             }
 
-            if !logged_is_draining && connection.is_draining() {
-                log::warn!("connection is draining");
-                logged_is_draining = true;
+            if total_write == 0 || dst_info.is_none() {
+                continue;
             }
 
-            if connection.is_closed() {
-                NUMBER_OF_CONNECTION_CLOSED.inc();
-                if let Some(e) = connection.peer_error() {
+            let send_result = if enable_pacing {
+                send_with_pacing(
+                    &socket,
+                    &out[..total_write],
+                    &dst_info.unwrap(),
+                    enable_gso,
+                    client.max_datagram_size as u16,
+                )
+            } else {
+                socket.send(&out[..total_write])
+            };
+
+            match send_result {
+                Ok(written) => {
+                    NUMBER_OF_BYTES_SENT.add(written as i64);
+                    log::debug!("finished sending");
+                }
+                Err(e) => {
+                    log::error!("sending failed with error : {e:?}");
+                }
+            }
+
+            trace!("{} written {} bytes", client.conn.trace_id(), total_write);
+
+            if total_write >= max_send_burst {
+                trace!("{} pause writing", client.conn.trace_id(),);
+                continue_write = true;
+                break;
+            }
+
+            if client.conn.is_closed() {
+                NUMBER_OF_CLIENTS.dec();
+                if let Some(e) = client.conn.peer_error() {
                     log::error!("peer error : {e:?} ");
                 }
 
-                if let Some(e) = connection.local_error() {
+                if let Some(e) = client.conn.local_error() {
                     log::error!("local error : {e:?} ");
                 }
 
                 log::info!(
                     "{} connection closed {:?}",
-                    connection.trace_id(),
-                    connection.stats()
+                    client.conn.trace_id(),
+                    client.conn.stats()
                 );
                 break;
             }
         }
-        quit.store(true, std::sync::atomic::Ordering::Relaxed);
-    });
-    NUMBER_OF_CLIENTS.dec();
-}
 
-fn create_dispatching_thread(
-    message_send_queue: mpsc::Receiver<ChannelMessage>,
-    dispatching_connections: DispachingConnections,
-    compression_type: CompressionType,
-) {
-    std::thread::spawn(move || {
-        while let Ok(message) = message_send_queue.recv() {
-            let mut dispatching_connections_lk = dispatching_connections.lock().unwrap();
+        // Garbage collect closed connections.
+        clients.retain(|_, ref mut c| {
+            trace!("Collecting garbage");
 
-            let dispatching_connections = dispatching_connections_lk
-                .iter()
-                .filter_map(|(id, x)| {
-                    let filters = x.filters.read().unwrap();
-                    if filters.iter().any(|x| x.allows(&message)) {
-                        Some(id.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect_vec();
+            if c.conn.is_closed() {
+                NUMBER_OF_CONNECTION_CLOSED.inc();
+                log::info!(
+                    "{} connection collected {:?} {:?}",
+                    c.conn.trace_id(),
+                    c.conn.stats(),
+                    c.conn.path_stats().collect::<Vec<quiche::PathStats>>()
+                );
 
-            if !dispatching_connections.is_empty() {
-                let (message, priority) = match message {
-                    ChannelMessage::Account(account, slot, init) => {
-                        if init {
-                            // do not sent init messages
-                            continue;
-                        }
-                        NUMBER_OF_ACCOUNT_UPDATES.inc();
-                        let slot_identifier = SlotIdentifier { slot };
-                        let geyser_account = Account::new(
-                            account.pubkey,
-                            account.account,
-                            compression_type,
-                            slot_identifier,
-                            account.write_version,
-                        );
-
-                        (Message::AccountMsg(geyser_account), 3)
-                    }
-                    ChannelMessage::Slot(slot, parent, commitment_config) => {
-                        NUMBER_OF_SLOT_UPDATES.inc();
-                        (
-                            Message::SlotMsg(SlotMeta {
-                                slot,
-                                parent,
-                                commitment_config,
-                            }),
-                            0,
-                        )
-                    }
-                    ChannelMessage::BlockMeta(block_meta) => {
-                        NUMBER_OF_BLOCKMETA_UPDATE.inc();
-                        (Message::BlockMetaMsg(block_meta), 0)
-                    }
-                    ChannelMessage::Transaction(transaction) => {
-                        NUMBER_OF_TRANSACTION_UPDATES.inc();
-                        (Message::TransactionMsg(transaction), 3)
-                    }
-                    ChannelMessage::Block(block) => {
-                        NUMBER_OF_BLOCK_UPDATES.inc();
-                        (Message::BlockMsg(block), 2)
-                    }
-                };
-                let binary = message.to_binary_stream();
-                for id in dispatching_connections.iter() {
-                    let data = dispatching_connections_lk.get(id).unwrap();
-                    if data
-                        .sender
-                        .send(InternalMessage::ClientMessage(binary.clone(), priority))
-                        .is_err()
-                    {
-                        // client is closed
-                        dispatching_connections_lk.remove(id);
-                    }
+                for id in c.conn.source_ids() {
+                    let id_owned = id.clone().into_owned();
+                    clients_ids.remove(&id_owned);
                 }
             }
-        }
-    });
+
+            !c.conn.is_closed()
+        });
+    }
 }
 
-fn set_txtime_sockopt(sock: &UdpSocket) -> std::io::Result<()> {
+/// Generate a stateless retry token.
+///
+/// The token includes the static string `"quiche"` followed by the IP address
+/// of the client and by the original destination connection ID generated by the
+/// client.
+///
+/// Note that this function is only an example and doesn't do any cryptographic
+/// authenticate of the token. *It should not be used in production system*.
+fn mint_token(hdr: &quiche::Header, src: &net::SocketAddr) -> Vec<u8> {
+    let mut token = Vec::new();
+
+    token.extend_from_slice(b"quiche");
+
+    let addr = match src.ip() {
+        std::net::IpAddr::V4(a) => a.octets().to_vec(),
+        std::net::IpAddr::V6(a) => a.octets().to_vec(),
+    };
+
+    token.extend_from_slice(&addr);
+    token.extend_from_slice(&hdr.dcid);
+
+    token
+}
+
+/// Validates a stateless retry token.
+///
+/// This checks that the ticket includes the `"quiche"` static string, and that
+/// the client IP address matches the address stored in the ticket.
+///
+/// Note that this function is only an example and doesn't do any cryptographic
+/// authenticate of the token. *It should not be used in production system*.
+fn validate_token<'a>(src: &net::SocketAddr, token: &'a [u8]) -> Option<quiche::ConnectionId<'a>> {
+    if token.len() < 6 {
+        return None;
+    }
+
+    if &token[..6] != b"quiche" {
+        return None;
+    }
+
+    let token = &token[6..];
+
+    let addr = match src.ip() {
+        std::net::IpAddr::V4(a) => a.octets().to_vec(),
+        std::net::IpAddr::V6(a) => a.octets().to_vec(),
+    };
+
+    if token.len() < addr.len() || &token[..addr.len()] != addr.as_slice() {
+        return None;
+    }
+
+    Some(quiche::ConnectionId::from_ref(&token[addr.len()..]))
+}
+
+fn handle_path_events(client: &mut Client) {
+    while let Some(qe) = client.conn.path_event_next() {
+        match qe {
+            quiche::PathEvent::New(local_addr, peer_addr) => {
+                log::info!(
+                    "{} Seen new path ({}, {})",
+                    client.conn.trace_id(),
+                    local_addr,
+                    peer_addr
+                );
+
+                // Directly probe the new path.
+                client
+                    .conn
+                    .probe_path(local_addr, peer_addr)
+                    .expect("cannot probe");
+            }
+
+            quiche::PathEvent::Validated(local_addr, peer_addr) => {
+                log::info!(
+                    "{} Path ({}, {}) is now validated",
+                    client.conn.trace_id(),
+                    local_addr,
+                    peer_addr
+                );
+            }
+
+            quiche::PathEvent::FailedValidation(local_addr, peer_addr) => {
+                log::info!(
+                    "{} Path ({}, {}) failed validation",
+                    client.conn.trace_id(),
+                    local_addr,
+                    peer_addr
+                );
+            }
+
+            quiche::PathEvent::Closed(local_addr, peer_addr) => {
+                log::info!(
+                    "{} Path ({}, {}) is now closed and unusable",
+                    client.conn.trace_id(),
+                    local_addr,
+                    peer_addr
+                );
+            }
+
+            quiche::PathEvent::ReusedSourceConnectionId(cid_seq, old, new) => {
+                log::info!(
+                    "{} Peer reused cid seq {} (initially {:?}) on {:?}",
+                    client.conn.trace_id(),
+                    cid_seq,
+                    old,
+                    new
+                );
+            }
+
+            quiche::PathEvent::PeerMigrated(local_addr, peer_addr) => {
+                log::info!(
+                    "{} Connection migrated to ({}, {})",
+                    client.conn.trace_id(),
+                    local_addr,
+                    peer_addr
+                );
+            }
+        }
+    }
+}
+
+pub fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
+    use nix::sys::socket::setsockopt;
+    use nix::sys::socket::sockopt::UdpGsoSegment;
+    use std::os::unix::io::AsRawFd;
+
+    // mio::net::UdpSocket doesn't implement AsFd (yet?).
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(socket.as_raw_fd()) };
+
+    setsockopt(&fd, UdpGsoSegment, &(segment_size as i32)).is_ok()
+}
+
+/// Set SO_TXTIME socket option.
+///
+/// This socket option is set to send to kernel the outgoing UDP
+/// packet transmission time in the sendmsg syscall.
+///
+/// Note that this socket option is set only on linux platforms.
+#[cfg(target_os = "linux")]
+fn set_txtime_sockopt(sock: &mio::net::UdpSocket) -> io::Result<()> {
     use nix::sys::socket::setsockopt;
     use nix::sys::socket::sockopt::TxTime;
     use std::os::unix::io::AsRawFd;
@@ -698,11 +861,23 @@ fn set_txtime_sockopt(sock: &UdpSocket) -> std::io::Result<()> {
         flags: 0,
     };
 
+    // mio::net::UdpSocket doesn't implement AsFd (yet?).
     let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock.as_raw_fd()) };
 
     setsockopt(&fd, TxTime, &config)?;
-    setsockopt(&fd, ReusePort, &true)?;
+
     Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn set_txtime_sockopt(_: &mio::net::UdpSocket) -> io::Result<()> {
+    use std::io::Error;
+    use std::io::ErrorKind;
+
+    Err(Error::new(
+        ErrorKind::Other,
+        "Not supported on this platform",
+    ))
 }
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
@@ -717,7 +892,7 @@ fn std_time_to_u64(time: &std::time::Instant) -> u64 {
 }
 
 fn send_with_pacing(
-    socket: &UdpSocket,
+    socket: &mio::net::UdpSocket,
     buf: &[u8],
     send_info: &quiche::SendInfo,
     enable_gso: bool,
@@ -747,15 +922,4 @@ fn send_with_pacing(
         Ok(v) => Ok(v),
         Err(e) => Err(e.into()),
     }
-}
-
-pub fn detect_gso(socket: &UdpSocket, segment_size: usize) -> bool {
-    use nix::sys::socket::setsockopt;
-    use nix::sys::socket::sockopt::UdpGsoSegment;
-    use std::os::unix::io::AsRawFd;
-
-    // mio::net::UdpSocket doesn't implement AsFd (yet?).
-    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(socket.as_raw_fd()) };
-
-    setsockopt(&fd, UdpGsoSegment, &(segment_size as i32)).is_ok()
 }
