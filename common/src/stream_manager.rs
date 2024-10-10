@@ -1,11 +1,11 @@
-pub struct StreamSender<const BUFFER_LEN: usize> {
+pub struct StreamBuffer<const BUFFER_LEN: usize> {
     buffer: Box<circular_buffer::CircularBuffer<BUFFER_LEN, u8>>,
 }
 
 #[allow(clippy::new_without_default)]
-impl<const BUFFER_LEN: usize> StreamSender<BUFFER_LEN> {
-    pub fn new() -> StreamSender<BUFFER_LEN> {
-        StreamSender {
+impl<const BUFFER_LEN: usize> StreamBuffer<BUFFER_LEN> {
+    pub fn new() -> StreamBuffer<BUFFER_LEN> {
+        StreamBuffer {
             buffer: circular_buffer::CircularBuffer::boxed(),
         }
     }
@@ -67,7 +67,7 @@ mod tests {
         },
     };
 
-    use super::StreamSender;
+    use super::StreamBuffer;
 
     #[test]
     pub fn test_drain_on_circular_buffer() {
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     pub fn create_and_consume_random_messages() {
-        let mut buffer = StreamSender::<3000>::new();
+        let mut buffer = StreamBuffer::<3000>::new();
         let mut rng = rand::thread_rng();
 
         let mut messages_appended = vec![];

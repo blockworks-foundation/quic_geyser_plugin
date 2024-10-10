@@ -1,11 +1,11 @@
 use anyhow::bail;
 use quic_geyser_common::{
-    defaults::MAX_DATAGRAM_SIZE, message::Message, stream_manager::StreamSender,
+    defaults::MAX_DATAGRAM_SIZE, message::Message, stream_manager::StreamBuffer,
 };
 use std::collections::BTreeMap;
 
 const BUFFER_SIZE: usize = 32 * 1024 * 1024;
-pub type ReadStreams = BTreeMap<u64, StreamSender<BUFFER_SIZE>>;
+pub type ReadStreams = BTreeMap<u64, StreamBuffer<BUFFER_SIZE>>;
 
 pub fn recv_message(
     connection: &mut quiche::Connection,
@@ -42,7 +42,7 @@ pub fn recv_message(
             }
         }
     } else {
-        let mut total_buf = StreamSender::<BUFFER_SIZE>::new();
+        let mut total_buf = StreamBuffer::<BUFFER_SIZE>::new();
         loop {
             match connection.stream_recv(stream_id, &mut buf) {
                 Ok((read, _)) => {

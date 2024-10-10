@@ -1,4 +1,4 @@
-use quic_geyser_common::stream_manager::StreamSender;
+use quic_geyser_common::stream_manager::StreamBuffer;
 use ring::rand::SecureRandom;
 use std::collections::BTreeMap;
 
@@ -163,6 +163,5 @@ pub fn generate_cid_and_reset_token<T: SecureRandom>(
 }
 
 // 16 MB per buffer
-pub const BUFFER_LEN: usize = 32 * 1024 * 1024;
-pub type StreamSenderWithDefaultCapacity = StreamSender<BUFFER_LEN>;
-pub type StreamSenderMap = BTreeMap<u64, StreamSenderWithDefaultCapacity>;
+pub const SEND_BUFFER_LEN: usize = 32 * 1024 * 1024;
+pub type StreamBufferMap<const BUFFER_LEN: usize> = BTreeMap<u64, StreamBuffer<BUFFER_LEN>>;

@@ -1,10 +1,11 @@
-use crate::quiche_utils::{StreamSenderMap, StreamSenderWithDefaultCapacity};
+use crate::quiche_utils::StreamBufferMap;
+use quic_geyser_common::stream_manager::StreamBuffer;
 use quiche::Connection;
 
 // return if connection has finished writing
-pub fn send_message(
+pub fn send_message<const BUFFER_LEN: usize>(
     connection: &mut Connection,
-    stream_sender_map: &mut StreamSenderMap,
+    stream_sender_map: &mut StreamBufferMap<BUFFER_LEN>,
     stream_id: u64,
     mut message: Vec<u8>,
 ) -> std::result::Result<(), quiche::Error> {
@@ -37,10 +38,13 @@ pub fn send_message(
                 return Err(e);
             }
         };
-        log::debug!("dispatched {} on stream id : {}", written, stream_id);
-        log::debug!("Creating new streambuffer : {}", message.len() - written);
+        log::debug!(
+            "dispatched {} and created new buffer on stream id : {}",
+            written,
+            stream_id
+        );
         message.drain(..written);
-        let mut new_stream_sender = StreamSenderWithDefaultCapacity::new();
+        let mut new_stream_sender = StreamBuffer::<BUFFER_LEN>::new();
         if !new_stream_sender.append_bytes(&message) {
             return Err(quiche::Error::BufferTooShort);
         }
@@ -50,9 +54,9 @@ pub fn send_message(
 }
 
 /// Handles newly writable streams.
-pub fn handle_writable(
+pub fn handle_writable<const BUFFER_LEN: usize>(
     conn: &mut quiche::Connection,
-    stream_sender_map: &mut StreamSenderMap,
+    stream_sender_map: &mut StreamBufferMap<BUFFER_LEN>,
     stream_id: u64,
 ) -> std::result::Result<(), quiche::Error> {
     if let Some(stream_sender) = stream_sender_map.get_mut(&stream_id) {

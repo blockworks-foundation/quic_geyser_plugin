@@ -47,7 +47,8 @@ use quic_geyser_quiche_utils::quiche_sender::handle_writable;
 use quic_geyser_quiche_utils::quiche_sender::send_message;
 use quic_geyser_quiche_utils::quiche_utils::generate_cid_and_reset_token;
 use quic_geyser_quiche_utils::quiche_utils::get_next_unidi;
-use quic_geyser_quiche_utils::quiche_utils::StreamSenderMap;
+use quic_geyser_quiche_utils::quiche_utils::StreamBufferMap;
+use quic_geyser_quiche_utils::quiche_utils::SEND_BUFFER_LEN;
 use quiche::ConnectionId;
 use ring::rand::*;
 use std::collections::HashMap;
@@ -96,7 +97,7 @@ pub struct Client {
     pub conn: quiche::Connection,
     pub client_id: ClientId,
     pub partial_requests: ReadStreams,
-    pub partial_responses: StreamSenderMap,
+    pub partial_responses: StreamBufferMap<SEND_BUFFER_LEN>,
     pub max_datagram_size: usize,
     pub loss_rate: f64,
     pub max_send_burst: usize,
@@ -247,7 +248,7 @@ pub fn server_loop(
                         channel_message_to_message_priority(message, compression_type);
                     let binary = message.to_binary_stream();
                     for client in dispatching_connections {
-                        log::debug!("sending message :{message:?} to {}", client.client_id);
+                        log::debug!("sending message to {}", client.client_id);
                         let stream_id = if client.partial_responses.len() < DEFAULT_PARALLEL_STREAMS
                         {
                             let stream_id_to_use = client.next_stream;
@@ -313,11 +314,6 @@ pub fn server_loop(
                         }
                     }
                 }
-            }
-
-            // if all are channel events // continue
-            if events.iter().all(|x| x.token() == Token(1)) {
-                continue;
             }
         }
 
@@ -463,7 +459,7 @@ pub fn server_loop(
                     conn,
                     client_id,
                     partial_requests: ReadStreams::new(),
-                    partial_responses: StreamSenderMap::new(),
+                    partial_responses: StreamBufferMap::new(),
                     max_datagram_size: MAX_DATAGRAM_SIZE,
                     loss_rate: 0.0,
                     max_send_burst: MAX_DATAGRAM_SIZE * 10,
