@@ -2,16 +2,12 @@
 resolver = "2"
 
 members = [
-    "plugin",
     "client",
     "common",
     "server",
     "blocking_client",
     "examples/tester-client",
     "examples/tester-server",
-    "proxy",
-    "block-builder",
-    "snapshot",
 ]
 
 [workspace.package]
@@ -22,14 +18,13 @@ license = "AGPL"
 edition = "2021"
 
 [workspace.dependencies]
-solana-sdk = "~1.18.16"
-solana-program = "~1.18.16"
-solana-transaction-status = "~1.18.16"
-solana-logger = "~1.18.16"
-solana-rpc-client = "~1.18.16"
-solana-rpc-client-api = "~1.18.16"
-solana-account-decoder = "~1.18.16"
-solana-geyser-plugin-interface = "=1.18.16"
+solana-sdk = "~1.16.7"
+solana-program = "~1.16.7"
+solana-transaction-status = "~1.16.7"
+solana-logger = "~1.16.7"
+solana-rpc-client = "~1.16.7"
+solana-rpc-client-api = "~1.16.7"
+solana-account-decoder = "~1.16.7"
 
 itertools = "0.10.5"
 serde = "1.0.201"
