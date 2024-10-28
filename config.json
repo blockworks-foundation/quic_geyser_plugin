@@ -7,5 +7,8 @@
             "Lz4Fast": 8
         }
       }
+  },
+  "rpc_server" : {
+    "enable" : false
   }
 }
