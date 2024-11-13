@@ -27,6 +27,7 @@
 use crate::configure_server::configure_server;
 use itertools::Itertools;
 use log::trace;
+use mio::Interest;
 use mio::Token;
 use prometheus::opts;
 use prometheus::register_int_gauge;
@@ -207,6 +208,7 @@ pub fn server_loop(
 
     let local_addr = socket.local_addr().unwrap();
     let first_stream = get_next_unidi(3, true, u64::MAX);
+    let mut message_queue_unregistered = false;
 
     loop {
         // Find the shorter timeout from all the active connections.
@@ -228,92 +230,122 @@ pub fn server_loop(
         }
 
         if events.iter().any(|x| x.token() == Token(1)) {
-            // dispactch messages to appropriate queues
-            while let Ok(message) = message_send_queue.try_recv() {
-                let dispatching_connections = clients
-                    .iter_mut()
-                    .filter_map(|(_id, x)| {
-                        if !x.connected || x.closed {
-                            None
-                        } else if x.filters.iter().any(|x| x.allows(&message)) {
-                            Some(x)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect_vec();
-
-                if !dispatching_connections.is_empty() {
-                    let (message, priority) =
-                        channel_message_to_message_priority(message, compression_type);
-                    let binary = message.to_binary_stream();
-                    for client in dispatching_connections {
-                        log::debug!("sending message to {}", client.client_id);
-                        let stream_id = if client.partial_responses.len() < DEFAULT_PARALLEL_STREAMS
-                        {
-                            let stream_id_to_use = client.next_stream;
-                            client.next_stream = get_next_unidi(stream_id_to_use, true, u64::MAX);
-                            log::debug!("Creating new stream to use :{stream_id_to_use}");
-                            if stream_id_to_use == first_stream {
-                                // set high priority to first stream
-                                client
-                                    .conn
-                                    .stream_priority(stream_id_to_use, 0, incremental_priority)
-                                    .unwrap();
+            // check if streams are already full, avoid depiling messages if it is full
+            if !clients.iter().all(|x| {
+                if x.1.partial_responses.is_empty() {
+                    false
+                } else {
+                    x.1.partial_responses.iter().all(|(_, y)| y.is_near_full())
+                }
+            }) {
+                // dispactch messages to appropriate queues
+                while let Ok(message) = message_send_queue.try_recv() {
+                    let dispatching_connections = clients
+                        .iter_mut()
+                        .filter_map(|(_id, x)| {
+                            if !x.connected || x.closed {
+                                None
+                            } else if x.filters.iter().any(|x| x.allows(&message)) {
+                                Some(x)
                             } else {
-                                client
-                                    .conn
-                                    .stream_priority(stream_id_to_use, 1, incremental_priority)
-                                    .unwrap();
+                                None
                             }
-                            stream_id_to_use
-                        } else {
-                            // for high priority streams
-                            let stream_id = if priority == 0 {
-                                first_stream
-                            } else {
-                                let value = client
-                                    .partial_responses
-                                    .iter()
-                                    .max_by(|x, y| x.1.capacity().cmp(&y.1.capacity()))
-                                    .unwrap()
-                                    .0;
-                                *value
-                            };
-                            log::debug!("Reusing stream {stream_id}");
-                            stream_id
-                        };
+                        })
+                        .collect_vec();
 
-                        let close = match send_message(
-                            &mut client.conn,
-                            &mut client.partial_responses,
-                            stream_id,
-                            binary.clone(),
-                        ) {
-                            Ok(_) => {
-                                // do nothing
-                                false
-                            }
-                            Err(e) => {
-                                // done writing / queue is full
-                                log::error!("got error sending message client : {}", e);
-                                true
-                            }
-                        };
-
-                        if close && stop_laggy_client {
-                            if let Err(e) = client.conn.close(true, 1, b"laggy client") {
-                                if e != quiche::Error::Done {
-                                    log::error!("error closing client : {}", e);
+                    if !dispatching_connections.is_empty() {
+                        let (message, priority) =
+                            channel_message_to_message_priority(message, compression_type);
+                        let binary = message.to_binary_stream();
+                        for client in dispatching_connections {
+                            log::debug!("sending message to {}", client.client_id);
+                            let stream_id = if client.partial_responses.len()
+                                < DEFAULT_PARALLEL_STREAMS
+                            {
+                                let stream_id_to_use = client.next_stream;
+                                client.next_stream =
+                                    get_next_unidi(stream_id_to_use, true, u64::MAX);
+                                log::debug!("Creating new stream to use :{stream_id_to_use}");
+                                if stream_id_to_use == first_stream {
+                                    // set high priority to first stream
+                                    client
+                                        .conn
+                                        .stream_priority(stream_id_to_use, 0, incremental_priority)
+                                        .unwrap();
+                                } else {
+                                    client
+                                        .conn
+                                        .stream_priority(stream_id_to_use, 1, incremental_priority)
+                                        .unwrap();
                                 }
+                                stream_id_to_use
                             } else {
-                                log::info!("Stopping laggy client : {}", client.conn.trace_id(),);
+                                // for high priority streams
+                                let stream_id = if priority == 0 {
+                                    first_stream
+                                } else {
+                                    let value = client
+                                        .partial_responses
+                                        .iter()
+                                        .max_by(|x, y| x.1.capacity().cmp(&y.1.capacity()))
+                                        .unwrap()
+                                        .0;
+                                    *value
+                                };
+                                log::debug!("Reusing stream {stream_id}");
+                                stream_id
+                            };
+
+                            let close = match send_message(
+                                &mut client.conn,
+                                &mut client.partial_responses,
+                                stream_id,
+                                binary.clone(),
+                            ) {
+                                Ok(_) => {
+                                    // do nothing
+                                    false
+                                }
+                                Err(e) => {
+                                    // done writing / queue is full
+                                    log::error!("got error sending message client : {}", e);
+                                    true
+                                }
+                            };
+
+                            if close && stop_laggy_client {
+                                if let Err(e) = client.conn.close(true, 1, b"laggy client") {
+                                    if e != quiche::Error::Done {
+                                        log::error!("error closing client : {}", e);
+                                    }
+                                } else {
+                                    log::info!(
+                                        "Stopping laggy client : {}",
+                                        client.conn.trace_id(),
+                                    );
+                                }
+                                client.closed = true;
+                                break;
                             }
-                            client.closed = true;
+                        }
+
+                        // if all buffers of a client are full do not continue
+                        if clients.iter().any(|x| {
+                            if x.1.partial_responses.is_empty() {
+                                false
+                            } else {
+                                x.1.partial_responses.iter().all(|x| x.1.is_near_full())
+                            }
+                        }) {
+                            // one of the client is full, stop sending message
                             break;
                         }
                     }
                 }
+            } else if !clients.is_empty() {
+                // unregister message queue till clients get some buffer space
+                poll.registry().deregister(&mut message_send_queue).unwrap();
+                message_queue_unregistered = true;
             }
         }
 
@@ -658,6 +690,13 @@ pub fn server_loop(
             }
 
             trace!("{} written {} bytes", client.conn.trace_id(), total_write);
+
+            if message_queue_unregistered {
+                poll.registry()
+                    .register(&mut message_send_queue, Token(1), Interest::READABLE)
+                    .unwrap();
+                message_queue_unregistered = false;
+            }
 
             if total_write >= max_send_burst {
                 trace!("{} pause writing", client.conn.trace_id(),);
