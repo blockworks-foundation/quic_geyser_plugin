@@ -49,6 +49,11 @@ impl<const BUFFER_LEN: usize> StreamBuffer<BUFFER_LEN> {
     pub fn is_empty(&self) -> bool {
         self.buffer.is_empty()
     }
+
+    const NEAR_FULL: usize = (BUFFER_LEN * 95) / 100;
+    pub fn is_near_full(&self) -> bool {
+        self.buffer.len() > Self::NEAR_FULL
+    }
 }
 
 #[cfg(test)]
