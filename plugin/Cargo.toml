@@ -13,7 +13,7 @@ name = "config-check"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-solana-geyser-plugin-interface = {workspace = true}
+agave-geyser-plugin-interface = {workspace = true}
 
 clap = { workspace = true, features = ["derive"]  }
 serde = { workspace = true }
@@ -34,9 +34,7 @@ tower-http = { version = "0.4.0", features = ["full"] }
 quic-geyser-common = { workspace = true }
 quic-geyser-server = { workspace = true }
 quic-geyser-block-builder = { workspace = true }
-quic-geyser-snapshot = { workspace = true }
 
-lite-account-manager-common = { workspace = true }
 itertools = { workspace = true }
 tokio = {workspace = true}
 base64 = {workspace = true}

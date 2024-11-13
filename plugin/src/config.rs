@@ -1,9 +1,8 @@
 use std::{fs::read_to_string, path::Path};
 
+use agave_geyser_plugin_interface::geyser_plugin_interface::GeyserPluginError;
 use quic_geyser_common::config::ConfigQuicPlugin;
-use quic_geyser_snapshot::snapshot_config::SnapshotConfig;
 use serde::{Deserialize, Serialize};
-use solana_geyser_plugin_interface::geyser_plugin_interface::GeyserPluginError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -11,8 +10,6 @@ pub struct Config {
     pub libpath: String,
 
     pub quic_plugin: ConfigQuicPlugin,
-
-    pub rpc_server: RpcServiceConfig,
 }
 
 impl Config {
@@ -35,8 +32,6 @@ pub struct RpcServiceConfig {
     pub enable: bool,
     #[serde(default = "RpcServiceConfig::default_port")]
     pub port: u16,
-    #[serde(default)]
-    pub snapshot_config: SnapshotConfig,
 }
 
 impl RpcServiceConfig {
