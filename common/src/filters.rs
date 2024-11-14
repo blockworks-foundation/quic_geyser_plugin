@@ -25,8 +25,7 @@ impl Filter {
         match &self {
             Filter::Account(account) => account.allows(message),
             Filter::AccountsAll => match message {
-                ChannelMessage::Account(account, _, init) => {
-                    !init &&
+                ChannelMessage::Account(account, _, _init) => {
                     account.account.owner != solana_program::vote::program::ID // does not belong to vote program
                         && account.account.owner != solana_program::stake::program::ID
                     // does not belong to stake program
@@ -86,10 +85,7 @@ pub struct AccountFilter {
 
 impl AccountFilter {
     pub fn allows(&self, message: &ChannelMessage) -> bool {
-        if let ChannelMessage::Account(account, _, init) = message {
-            if *init {
-                return false;
-            }
+        if let ChannelMessage::Account(account, _, _init) = message {
             if let Some(owner) = self.owner {
                 if owner == account.account.owner {
                     // to do move the filtering somewhere else because here we need to decode the account data
@@ -228,7 +224,7 @@ mod tests {
             filters: None,
         };
 
-        assert_eq!(f1.allows(&msg_0), false);
+        assert_eq!(f1.allows(&msg_0), true);
         assert_eq!(f1.allows(&msg_1), true);
         assert_eq!(f1.allows(&msg_2), true);
         assert_eq!(f1.allows(&msg_3), false);
@@ -250,7 +246,7 @@ mod tests {
             accounts: None,
             filters: Some(vec![AccountFilterType::Datasize(10)]),
         };
-        assert_eq!(f3.allows(&msg_0), false);
+        assert_eq!(f3.allows(&msg_0), true);
         assert_eq!(f3.allows(&msg_1), true);
         assert_eq!(f3.allows(&msg_2), true);
         assert_eq!(f3.allows(&msg_3), false);
@@ -264,7 +260,7 @@ mod tests {
                 data: crate::filters::MemcmpFilterData::Bytes(vec![3, 4, 5]),
             })]),
         };
-        assert_eq!(f4.allows(&msg_0), false);
+        assert_eq!(f4.allows(&msg_0), true);
         assert_eq!(f4.allows(&msg_1), true);
         assert_eq!(f4.allows(&msg_2), false);
         assert_eq!(f4.allows(&msg_3), false);

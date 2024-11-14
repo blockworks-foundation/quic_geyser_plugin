@@ -32,7 +32,7 @@ use crate::block_builder::start_block_building_thread;
 #[test]
 fn test_block_creation_transactions_after_blockmeta() {
     let (channelmsg_sx, cm_rx) = channel();
-    let (ms_sx, msg_rx) = channel();
+    let (ms_sx, msg_rx) = mio_channel::channel();
     start_block_building_thread(
         cm_rx,
         ms_sx,
@@ -231,7 +231,8 @@ fn test_block_creation_transactions_after_blockmeta() {
         .send(ChannelMessage::Transaction(Box::new(tx3.clone())))
         .unwrap();
 
-    let block_message = msg_rx.recv().unwrap();
+    sleep(Duration::from_millis(1));
+    let block_message = msg_rx.try_recv().unwrap();
     let ChannelMessage::Block(block) = block_message else {
         unreachable!();
     };
@@ -260,7 +261,7 @@ fn test_block_creation_transactions_after_blockmeta() {
 #[test]
 fn test_block_creation_blockmeta_after_transactions() {
     let (channelmsg_sx, cm_rx) = channel();
-    let (ms_sx, msg_rx) = channel();
+    let (ms_sx, msg_rx) = mio_channel::channel();
     start_block_building_thread(
         cm_rx,
         ms_sx,
@@ -460,7 +461,8 @@ fn test_block_creation_blockmeta_after_transactions() {
         .send(ChannelMessage::BlockMeta(block_meta.clone()))
         .unwrap();
 
-    let block_message = msg_rx.recv().unwrap();
+    sleep(Duration::from_millis(1));
+    let block_message = msg_rx.try_recv().unwrap();
     let ChannelMessage::Block(block) = block_message else {
         unreachable!();
     };
@@ -489,7 +491,7 @@ fn test_block_creation_blockmeta_after_transactions() {
 #[test]
 fn test_block_creation_incomplete_block_after_slot_notification() {
     let (channelmsg_sx, cm_rx) = channel();
-    let (ms_sx, msg_rx) = channel();
+    let (ms_sx, msg_rx) = mio_channel::channel();
     start_block_building_thread(
         cm_rx,
         ms_sx,
@@ -688,7 +690,8 @@ fn test_block_creation_incomplete_block_after_slot_notification() {
         .send(ChannelMessage::Transaction(Box::new(tx3.clone())))
         .unwrap();
 
-    let block_message = msg_rx.recv().unwrap();
+    sleep(Duration::from_millis(1));
+    let block_message = msg_rx.try_recv().unwrap();
     let ChannelMessage::Block(block) = block_message else {
         unreachable!();
     };
@@ -717,7 +720,7 @@ fn test_block_creation_incomplete_block_after_slot_notification() {
 #[test]
 fn test_block_creation_incomplete_slot() {
     let (channelmsg_sx, cm_rx) = channel();
-    let (ms_sx, msg_rx) = channel();
+    let (ms_sx, msg_rx) = mio_channel::channel();
     start_block_building_thread(
         cm_rx,
         ms_sx,
