@@ -9,7 +9,7 @@ use quic_geyser_common::{
 use quic_geyser_server::quic_server::QuicServer;
 use rand::{thread_rng, Rng};
 use solana_sdk::{account::Account, commitment_config::CommitmentConfig, pubkey::Pubkey};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub mod cli;
 
@@ -31,11 +31,9 @@ pub fn main() {
         allow_accounts: true,
         allow_accounts_at_startup: false,
         enable_block_builder: false,
-        build_blocks_with_accounts: true,
+        build_blocks_with_accounts: false,
     };
     let quic_server = QuicServer::new(config).unwrap();
-
-    let mut instant = Instant::now();
     // to avoid errors
     std::thread::sleep(Duration::from_millis(500));
 
@@ -49,12 +47,8 @@ pub fn main() {
             (0..size).map(|_| rand.gen::<u8>()).collect_vec()
         })
         .collect_vec();
+    let sleep_time_in_micros = 1_000_000 / args.accounts_per_second as u64;
     loop {
-        let diff = Instant::now().duration_since(instant);
-        if diff < Duration::from_secs(1) {
-            std::thread::sleep(Duration::from_secs(1) - diff);
-        }
-        instant = Instant::now();
         slot += 1;
         quic_server
             .send_message(ChannelMessage::Slot(
@@ -93,6 +87,7 @@ pub fn main() {
             };
             let channel_message = ChannelMessage::Account(account, slot, false);
             quic_server.send_message(channel_message).unwrap();
+            std::thread::sleep(Duration::from_micros(sleep_time_in_micros));
         }
     }
 }
