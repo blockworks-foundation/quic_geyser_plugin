@@ -7,6 +7,7 @@ use super::quiche_server_loop::server_loop;
 pub struct QuicServer {
     pub data_channel_sender: mio_channel::Sender<ChannelMessage>,
     pub quic_plugin_config: ConfigQuicPlugin,
+    _server_loop_jh: std::thread::JoinHandle<()>,
 }
 
 impl Debug for QuicServer {
@@ -38,6 +39,7 @@ impl QuicServer {
         Ok(QuicServer {
             data_channel_sender,
             quic_plugin_config: config,
+            _server_loop_jh,
         })
     }
 

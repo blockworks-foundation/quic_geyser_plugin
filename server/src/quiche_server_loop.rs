@@ -230,6 +230,12 @@ pub fn server_loop(
         }
 
         if events.iter().any(|x| x.token() == Token(1)) {
+            if clients.is_empty() {
+                // no clients, no need to process messages
+                while message_send_queue.try_recv().is_ok() {
+                    // do nothing / clearing the queue
+                }
+            }
             // check if streams are already full, avoid depiling messages if it is full
             if !clients.iter().all(|x| {
                 if x.1.partial_responses.is_empty() {
