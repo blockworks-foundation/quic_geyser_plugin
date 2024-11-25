@@ -37,57 +37,61 @@ pub fn main() {
     // to avoid errors
     std::thread::sleep(Duration::from_millis(500));
 
-    let mut slot = 1;
+    let mut slot = 4;
     let mut write_version = 1;
     let mut rand = thread_rng();
     let datas = (0..args.number_of_random_accounts)
         .map(|_| {
             let size: usize =
                 rand.gen_range(args.min_account_data_size..args.max_account_data_size);
-            (0..size).map(|_| rand.gen::<u8>()).collect_vec()
-        })
-        .collect_vec();
-    let sleep_time_in_micros = 1_000_000 / args.accounts_per_second as u64;
-    loop {
-        slot += 1;
-        quic_server
-            .send_message(ChannelMessage::Slot(
-                slot,
-                slot.saturating_sub(1),
-                CommitmentConfig::processed(),
-            ))
-            .unwrap();
-        quic_server
-            .send_message(ChannelMessage::Slot(
-                slot.saturating_sub(1),
-                slot.saturating_sub(2),
-                CommitmentConfig::confirmed(),
-            ))
-            .unwrap();
-        quic_server
-            .send_message(ChannelMessage::Slot(
-                slot.saturating_sub(2),
-                slot.saturating_sub(3),
-                CommitmentConfig::finalized(),
-            ))
-            .unwrap();
-        for _ in 0..args.accounts_per_second {
-            write_version += 1;
-            let data_index = rand.gen::<usize>() % args.number_of_random_accounts;
-            let account = AccountData {
+            let data = (0..size).map(|_| rand.gen::<u8>()).collect_vec();
+            AccountData {
                 pubkey: Pubkey::new_unique(),
                 account: Account {
                     lamports: rand.gen(),
-                    data: datas.get(data_index).unwrap().clone(),
+                    data,
                     owner: Pubkey::new_unique(),
                     executable: false,
                     rent_epoch: u64::MAX,
                 },
                 write_version,
-            };
-            let channel_message = ChannelMessage::Account(account, slot, false);
+            }
+        })
+        .collect_vec();
+    let sleep_time_in_nanos = 1_000_000_000 / (args.accounts_per_second/1000) as u64;
+    loop {
+        slot += 1;
+        quic_server
+            .send_message(ChannelMessage::Slot(
+                slot,
+                slot-1,
+                CommitmentConfig::processed(),
+            ))
+            .unwrap();
+        quic_server
+            .send_message(ChannelMessage::Slot(
+                slot-1,
+                slot-2,
+                CommitmentConfig::confirmed(),
+            ))
+            .unwrap();
+        quic_server
+            .send_message(ChannelMessage::Slot(
+                slot-2,
+                slot-3,
+                CommitmentConfig::finalized(),
+            ))
+            .unwrap();
+        for i in 1..args.accounts_per_second+1 {
+            write_version += 1;
+            let data_index = 0;
+            let mut account = datas.get(data_index).unwrap().clone();
+            account.write_version = write_version;
+            let channel_message = ChannelMessage::Account( account, slot, false);
             quic_server.send_message(channel_message).unwrap();
-            std::thread::sleep(Duration::from_micros(sleep_time_in_micros));
+            if i%1000 == 0 {
+                std::thread::sleep(Duration::from_nanos(sleep_time_in_nanos));
+            }
         }
     }
 }
