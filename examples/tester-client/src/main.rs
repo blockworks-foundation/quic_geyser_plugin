@@ -6,7 +6,7 @@ use std::{
         Arc,
     },
     thread::sleep,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use clap::Parser;
@@ -121,15 +121,10 @@ fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>
     println!("Connecting");
     let (client, reciever) = quic_geyser_blocking_client::client::Client::new(
         args.url,
-        ConnectionParameters {
-            max_number_of_streams: args.number_of_streams,
-            ..Default::default()
-        },
+        ConnectionParameters::default(),
     )
     .unwrap();
     println!("Connected");
-
-    sleep(Duration::from_secs(1));
     let mut filters = vec![Filter::Slot, Filter::BlockMeta];
     if args.blocks_instead_of_accounts {
         filters.push(Filter::BlockAll);
@@ -249,7 +244,6 @@ async fn non_blocking(args: Args, client_stats: ClientStats, break_thread: Arc<A
     //     filters.push(Filter::AccountsAll);
     // }
 
-    sleep(Duration::from_secs(5));
     println!("Subscribing");
     client.subscribe(vec![Filter::AccountsAll]).await.unwrap();
     println!("Subscribed");
@@ -284,6 +278,10 @@ async fn non_blocking(args: Args, client_stats: ClientStats, break_thread: Arc<A
                         );
                         panic!("Wrong account data");
                     }
+                    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_micros() as u64;
+                    let account_in_us = account.lamports;
+
+                    client_stats.delay.fetch_add( now.saturating_sub(account_in_us), std::sync::atomic::Ordering::Relaxed);
 
                     client_stats.account_slot.store(
                         account.slot_identifier.slot,
@@ -355,6 +353,7 @@ struct ClientStats {
     slot_slot: Arc<AtomicU64>,
     blockmeta_slot: Arc<AtomicU64>,
     block_slot: Arc<AtomicU64>,
+    delay: Arc<AtomicU64>,
 }
 
 #[tokio::main]
@@ -399,6 +398,7 @@ pub async fn main() {
         let slot_slot = client_stats.slot_slot.clone();
         let blockmeta_slot = client_stats.blockmeta_slot.clone();
         let block_slot = client_stats.block_slot.clone();
+        let delay = client_stats.delay.clone();
 
         let mut instant = Instant::now();
         let mut bytes_transfered_stats = Stats::<u64>::new();
@@ -427,6 +427,8 @@ pub async fn main() {
                 transaction_notifications.swap(0, std::sync::atomic::Ordering::Relaxed);
             let block_notifications =
                 block_notifications.swap(0, std::sync::atomic::Ordering::Relaxed);
+            let avg_delay_us =
+                delay.swap(0, std::sync::atomic::Ordering::Relaxed) as f64 / account_notification as f64;
             bytes_transfered_stats.add_value(&bytes_transfered);
             total_accounts_size_stats.add_value(&total_accounts_size);
             slot_notifications_stats.add_value(&slot_notifications);
@@ -450,6 +452,7 @@ pub async fn main() {
             log::info!(" Blockmeta notified : {}", blockmeta_notifications);
             log::info!(" Transactions notified : {}", transaction_notifications);
             log::info!(" Blocks notified : {}", block_notifications);
+            log::info!(" Average delay by accounts : {:.02} ms", avg_delay_us / 1000.0);
 
             log::info!(" Cluster Slots: {}, Account Slot: {}, Slot Notification slot: {}, BlockMeta slot: {}, Block slot: {}", cluster_slot.load(std::sync::atomic::Ordering::Relaxed), account_slot.load(std::sync::atomic::Ordering::Relaxed), slot_slot.load(std::sync::atomic::Ordering::Relaxed), blockmeta_slot.load(std::sync::atomic::Ordering::Relaxed), block_slot.load(std::sync::atomic::Ordering::Relaxed));
 

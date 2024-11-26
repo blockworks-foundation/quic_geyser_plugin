@@ -9,6 +9,7 @@ pub const MAX_DATAGRAM_SIZE: usize = 1350;
 pub const MAX_PAYLOAD_BUFFER: usize = 5 * MAX_DATAGRAM_SIZE;
 pub const DEFAULT_ENABLE_PACING: bool = true;
 pub const DEFAULT_USE_CC_BBR: bool = false;
+pub const DEFAULT_USE_CC_BBR2: bool = true;
 pub const DEFAULT_INCREMENTAL_PRIORITY: bool = true;
 pub const DEFAULT_ENABLE_GSO: bool = true;
 pub const DEFAULT_DISCOVER_PMTU: bool = true;

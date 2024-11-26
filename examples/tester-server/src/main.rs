@@ -58,38 +58,38 @@ pub fn main() {
             }
         })
         .collect_vec();
-    let sleep_time_in_nanos = 1_000_000_000 / (args.accounts_per_second/1000) as u64;
+    let sleep_time_in_nanos = 1_000_000_000 / (args.accounts_per_second / 1000) as u64;
     loop {
         slot += 1;
         quic_server
             .send_message(ChannelMessage::Slot(
                 slot,
-                slot-1,
+                slot - 1,
                 CommitmentConfig::processed(),
             ))
             .unwrap();
         quic_server
             .send_message(ChannelMessage::Slot(
-                slot-1,
-                slot-2,
+                slot - 1,
+                slot - 2,
                 CommitmentConfig::confirmed(),
             ))
             .unwrap();
         quic_server
             .send_message(ChannelMessage::Slot(
-                slot-2,
-                slot-3,
+                slot - 2,
+                slot - 3,
                 CommitmentConfig::finalized(),
             ))
             .unwrap();
-        for i in 1..args.accounts_per_second+1 {
+        for i in 1..args.accounts_per_second + 1 {
             write_version += 1;
             let data_index = 0;
             let mut account = datas.get(data_index).unwrap().clone();
             account.write_version = write_version;
-            let channel_message = ChannelMessage::Account( account, slot, false);
+            let channel_message = ChannelMessage::Account(account, slot, false);
             quic_server.send_message(channel_message).unwrap();
-            if i%1000 == 0 {
+            if i % 1000 == 0 {
                 std::thread::sleep(Duration::from_nanos(sleep_time_in_nanos));
             }
         }

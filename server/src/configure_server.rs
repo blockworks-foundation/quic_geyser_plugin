@@ -14,6 +14,7 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     let ack_exponent = quic_parameter.ack_exponent;
     let enable_pacing = quic_parameter.enable_pacing;
     let use_bbr = quic_parameter.use_cc_bbr;
+    let use_bbr2 = quic_parameter.use_cc_bbr2;
 
     let cert = rcgen::generate_simple_self_signed(vec!["quic_geyser".into()]).unwrap();
 
@@ -50,8 +51,10 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     config.enable_hystart(true);
     config.discover_pmtu(quic_parameter.discover_pmtu);
 
-    if use_bbr {
+    if use_bbr2 {
         config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
+    } else if use_bbr {
+        config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR);
     } else {
         config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
     }

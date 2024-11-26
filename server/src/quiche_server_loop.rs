@@ -165,7 +165,6 @@ pub fn server_loop(
     let incremental_priority = quic_params.incremental_priority;
 
     let mut buf = [0; 65535];
-    let mut out = [0; 65535];
 
     // Setup the event loop.
     let mut poll = mio::Poll::new().unwrap();
@@ -235,6 +234,7 @@ pub fn server_loop(
                 while message_send_queue.try_recv().is_ok() {
                     // do nothing / clearing the queue
                 }
+                continue;
             }
             // check if streams are already full, avoid depiling messages if it is full
             if !clients.iter().all(|x| {
@@ -419,11 +419,11 @@ pub fn server_loop(
 
                 if !quiche::version_is_supported(hdr.version) {
                     log::warn!("Doing version negotiation");
-                    let len = quiche::negotiate_version(&hdr.scid, &hdr.dcid, &mut out).unwrap();
+                    let len = quiche::negotiate_version(&hdr.scid, &hdr.dcid, &mut buf).unwrap();
 
-                    let out = &out[..len];
+                    let buf = &buf[..len];
 
-                    if let Err(e) = socket.send_to(out, from) {
+                    if let Err(e) = socket.send_to(buf, from) {
                         if e.kind() == std::io::ErrorKind::WouldBlock {
                             log::trace!("send() would block");
                             break;
@@ -452,13 +452,13 @@ pub fn server_loop(
                         &scid,
                         &new_token,
                         hdr.version,
-                        &mut out,
+                        &mut buf,
                     )
                     .unwrap();
 
-                    let out = &out[..len];
+                    let buf = &buf[..len];
 
-                    if let Err(e) = socket.send_to(out, from) {
+                    if let Err(e) = socket.send_to(buf, from) {
                         if e.kind() == std::io::ErrorKind::WouldBlock {
                             log::trace!("send() would block");
                             break;
@@ -642,7 +642,7 @@ pub fn server_loop(
 
             while total_write < max_send_burst {
                 let (write, send_info) =
-                    match client.conn.send(&mut out[total_write..max_send_burst]) {
+                    match client.conn.send(&mut buf[total_write..max_send_burst]) {
                         Ok(v) => v,
 
                         Err(quiche::Error::Done) => {
@@ -676,19 +676,25 @@ pub fn server_loop(
             let send_result = if enable_pacing {
                 send_with_pacing(
                     &socket,
-                    &out[..total_write],
+                    &buf[..total_write],
                     &dst_info.unwrap(),
                     enable_gso,
                     client.max_datagram_size as u16,
                 )
             } else {
-                socket.send(&out[..total_write])
+                socket.send(&buf[..total_write])
             };
 
             match send_result {
                 Ok(written) => {
                     NUMBER_OF_BYTES_SENT.add(written as i64);
                     log::debug!("finished sending");
+                    if written > 0 && message_queue_unregistered {
+                        poll.registry()
+                            .register(&mut message_send_queue, Token(1), Interest::READABLE)
+                            .unwrap();
+                        message_queue_unregistered = false;
+                    }
                 }
                 Err(e) => {
                     log::error!("sending failed with error : {e:?}");
@@ -696,13 +702,6 @@ pub fn server_loop(
             }
 
             trace!("{} written {} bytes", client.conn.trace_id(), total_write);
-
-            if message_queue_unregistered {
-                poll.registry()
-                    .register(&mut message_send_queue, Token(1), Interest::READABLE)
-                    .unwrap();
-                message_queue_unregistered = false;
-            }
 
             if total_write >= max_send_burst {
                 trace!("{} pause writing", client.conn.trace_id(),);
