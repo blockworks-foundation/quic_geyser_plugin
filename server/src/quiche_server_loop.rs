@@ -746,9 +746,17 @@ pub fn server_loop(
                     let id_owned = id.clone().into_owned();
                     clients_ids.remove(&id_owned);
                 }
-            }
 
-            !c.conn.is_closed()
+                if message_queue_unregistered {
+                    poll.registry()
+                        .register(&mut message_send_queue, Token(1), Interest::READABLE)
+                        .unwrap();
+                    message_queue_unregistered = false;
+                }
+                false
+            } else {
+                true
+            }
         });
     }
 }
