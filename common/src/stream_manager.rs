@@ -54,6 +54,11 @@ impl<const BUFFER_LEN: usize> StreamBuffer<BUFFER_LEN> {
     pub fn is_near_full(&self) -> bool {
         self.buffer.len() > Self::NEAR_FULL
     }
+
+    const REQUIRED_CAPACITY: usize = (BUFFER_LEN * 75) / 100;
+    pub fn has_more_than_required_capacity(&self) -> bool {
+        self.capacity() < Self::REQUIRED_CAPACITY
+    }
 }
 
 #[cfg(test)]

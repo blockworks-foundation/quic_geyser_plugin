@@ -20,18 +20,13 @@ impl QuicServer {
     pub fn new(config: ConfigQuicPlugin) -> anyhow::Result<Self> {
         let socket = config.address;
         let compression_type = config.compression_parameters.compression_type;
-        let quic_parameters = config.quic_parameters;
+        let quic_parameters = config.quic_parameters.clone();
 
         let (data_channel_sender, data_channel_tx) = mio_channel::channel();
 
         let _server_loop_jh = std::thread::spawn(move || {
-            if let Err(e) = server_loop(
-                quic_parameters,
-                socket,
-                data_channel_tx,
-                compression_type,
-                true,
-            ) {
+            if let Err(e) = server_loop(quic_parameters, socket, data_channel_tx, compression_type)
+            {
                 panic!("Server loop closed by error : {e}");
             }
         });

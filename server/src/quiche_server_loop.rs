@@ -159,10 +159,10 @@ pub fn server_loop(
     socket_addr: SocketAddr,
     mut message_send_queue: mio_channel::Receiver<ChannelMessage>,
     compression_type: CompressionType,
-    stop_laggy_client: bool,
 ) -> anyhow::Result<()> {
-    let mut config = configure_server(quic_params)?;
+    let mut config = configure_server(&quic_params)?;
     let incremental_priority = quic_params.incremental_priority;
+    let stop_laggy_client = quic_params.disconnect_laggy_client;
 
     let mut buf = [0; 65535];
 
@@ -237,13 +237,19 @@ pub fn server_loop(
                 continue;
             }
             // check if streams are already full, avoid depiling messages if it is full
-            if !clients.iter().all(|x| {
-                if x.1.partial_responses.is_empty() {
-                    false
-                } else {
-                    x.1.partial_responses.iter().all(|(_, y)| y.is_near_full())
-                }
-            }) {
+            // if stop_laggy_client is true then the client will be disconnected at any sign of lag
+            // if stp_laggy_client is false then the client will not be disconnected and there are two scenarios
+            // 1. if there are multiple clients and one of the client is laggy then the message will be dropped for laggy client
+            // 2. all clients are laggy or there is one laggy client messages will be paused till the client gets some buffer space
+            if stop_laggy_client
+                || !clients.iter().any(|x| {
+                    if x.1.partial_responses.is_empty() {
+                        false
+                    } else {
+                        x.1.partial_responses.iter().all(|(_, y)| y.is_near_full())
+                    }
+                })
+            {
                 // dispactch messages to appropriate queues
                 while let Ok(message) = message_send_queue.try_recv() {
                     let dispatching_connections = clients
@@ -348,7 +354,7 @@ pub fn server_loop(
                         }
                     }
                 }
-            } else if !clients.is_empty() {
+            } else {
                 // unregister message queue till clients get some buffer space
                 poll.registry().deregister(&mut message_send_queue).unwrap();
                 message_queue_unregistered = true;
@@ -689,7 +695,15 @@ pub fn server_loop(
                 Ok(written) => {
                     NUMBER_OF_BYTES_SENT.add(written as i64);
                     log::debug!("finished sending");
-                    if written > 0 && message_queue_unregistered {
+                    // check if any buffer has more than 75% space to restart recieving messages
+                    if message_queue_unregistered
+                        && written > 0
+                        && client
+                            .partial_responses
+                            .iter()
+                            .any(|x| x.1.has_more_than_required_capacity())
+                    {
+                        // wait for the message queue to have some space
                         poll.registry()
                             .register(&mut message_send_queue, Token(1), Interest::READABLE)
                             .unwrap();

@@ -5,7 +5,7 @@ use quic_geyser_common::{
     defaults::{ALPN_GEYSER_PROTOCOL_ID, MAX_DATAGRAM_SIZE},
 };
 
-pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche::Config> {
+pub fn configure_server(quic_parameter: &QuicParameters) -> anyhow::Result<quiche::Config> {
     let max_concurrent_streams = quic_parameter.max_number_of_streams_per_client;
     let recieve_window_size = quic_parameter.recieve_window_size;
     let connection_timeout = quic_parameter.connection_timeout;
@@ -13,8 +13,7 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     let maximum_ack_delay = quic_parameter.max_ack_delay;
     let ack_exponent = quic_parameter.ack_exponent;
     let enable_pacing = quic_parameter.enable_pacing;
-    let use_bbr = quic_parameter.use_cc_bbr;
-    let use_bbr2 = quic_parameter.use_cc_bbr2;
+    let cc_algo = quic_parameter.cc_algorithm.as_str();
 
     let cert = rcgen::generate_simple_self_signed(vec!["quic_geyser".into()]).unwrap();
 
@@ -51,9 +50,9 @@ pub fn configure_server(quic_parameter: QuicParameters) -> anyhow::Result<quiche
     config.enable_hystart(true);
     config.discover_pmtu(quic_parameter.discover_pmtu);
 
-    if use_bbr2 {
+    if cc_algo == "bbr2" {
         config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR2);
-    } else if use_bbr {
+    } else if cc_algo == "bbr" {
         config.set_cc_algorithm(quiche::CongestionControlAlgorithm::BBR);
     } else {
         config.set_cc_algorithm(quiche::CongestionControlAlgorithm::CUBIC);
