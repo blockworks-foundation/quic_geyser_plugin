@@ -2,7 +2,6 @@ use std::{
     net::SocketAddr,
     sync::{atomic::AtomicBool, Arc},
     time::{Duration, Instant},
-    u64,
 };
 
 use log::{debug, error, info, trace};

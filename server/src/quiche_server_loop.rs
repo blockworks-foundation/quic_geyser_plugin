@@ -404,13 +404,10 @@ pub fn server_loop(
                 }
             };
             log::trace!("got packet {:?}", hdr);
-            let conn_id = if !cfg!(feature = "fuzzing") {
+            let conn_id = {
                 let conn_id = ring::hmac::sign(&conn_id_seed, &hdr.dcid);
                 let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
                 conn_id.to_vec().into()
-            } else {
-                // When fuzzing use an all zero connection ID.
-                [0; quiche::MAX_CONN_ID_LEN].to_vec().into()
             };
 
             // Lookup a connection based on the packet's connection ID. If there
