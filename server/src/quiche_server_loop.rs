@@ -892,6 +892,8 @@ fn handle_path_events(client: &mut Client) {
     }
 }
 
+
+#[cfg(target_os = "linux")]
 pub fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
     use nix::sys::socket::setsockopt;
     use nix::sys::socket::sockopt::UdpGsoSegment;
@@ -901,6 +903,11 @@ pub fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
     let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(socket.as_raw_fd()) };
 
     setsockopt(&fd, UdpGsoSegment, &(segment_size as i32)).is_ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn detect_gso(_: &mio::net::UdpSocket, _: usize) -> bool {
+    false
 }
 
 /// Set SO_TXTIME socket option.
@@ -950,6 +957,7 @@ fn std_time_to_u64(time: &std::time::Instant) -> u64 {
     sec * NANOS_PER_SEC + nsec as u64
 }
 
+#[cfg(target_os = "linux")]
 fn send_with_pacing(
     socket: &mio::net::UdpSocket,
     buf: &[u8],
@@ -978,6 +986,22 @@ fn send_with_pacing(
     }
 
     match sendmsg(sockfd, &iov, &cmgs, MsgFlags::empty(), Some(&dst)) {
+        Ok(v) => Ok(v),
+        Err(e) => Err(e.into()),
+    }
+}
+
+// untested workaround for non-linux systems
+#[cfg(not(target_os = "linux"))]
+fn send_with_pacing(
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
+    _enable_gso: bool,
+    _segment_size: u16,
+) -> std::io::Result<usize> {
+
+    match socket.send(buf) {
         Ok(v) => Ok(v),
         Err(e) => Err(e.into()),
     }
