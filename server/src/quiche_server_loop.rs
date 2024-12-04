@@ -985,9 +985,9 @@ fn send_linux_optimized(
 
     let mut cmgs = Vec::with_capacity(2);
 
+    let send_time = std_time_to_u64(&send_info.at);
     if enable_pacing {
         // Pacing option.
-        let send_time = std_time_to_u64(&send_info.at);
         let cmsg_txtime = ControlMessage::TxTime(&send_time);
         cmgs.push(cmsg_txtime);
     }
