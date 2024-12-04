@@ -57,7 +57,6 @@ use std::io;
 use std::net;
 use std::net::SocketAddr;
 use nix::sys::socket::SockaddrStorage;
-use smallvec::{smallvec, SmallVec};
 
 lazy_static::lazy_static! {
     static ref NUMBER_OF_CLIENTS: IntGauge =
@@ -984,7 +983,7 @@ fn send_linux_optimized(
     use std::io::IoSlice;
     use std::os::unix::io::AsRawFd;
 
-    let mut cmgs: SmallVec<ControlMessage, 2> = SmallVec::new();
+    let mut cmgs = Vec::with_capacity(2);
 
     if enable_pacing {
         // Pacing option.
