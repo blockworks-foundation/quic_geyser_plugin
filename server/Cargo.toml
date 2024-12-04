@@ -20,6 +20,7 @@ rcgen = { workspace = true }
 boring = { workspace = true }
 mio = { workspace = true }
 mio_channel = { workspace = true }
+smallvec = "1.13.2"
 
 libc = "0.2"
 nix = { version = "0.27", features = ["net", "socket", "uio"] }

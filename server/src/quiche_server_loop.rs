@@ -26,7 +26,7 @@
 
 use crate::configure_server::configure_server;
 use itertools::Itertools;
-use log::trace;
+use log::{info, trace};
 use mio::Interest;
 use mio::Token;
 use prometheus::opts;
@@ -56,6 +56,8 @@ use std::collections::HashMap;
 use std::io;
 use std::net;
 use std::net::SocketAddr;
+use nix::sys::socket::SockaddrStorage;
+use smallvec::{smallvec, SmallVec};
 
 lazy_static::lazy_static! {
     static ref NUMBER_OF_CLIENTS: IntGauge =
@@ -178,12 +180,15 @@ pub fn server_loop(
     } else {
         false
     };
+    info!("quic server: enable pacing? {}", enable_pacing);
 
     let enable_gso = if quic_params.enable_gso {
         detect_gso(&socket, MAX_DATAGRAM_SIZE)
     } else {
         false
     };
+    info!("quic server: enable gso? {}", enable_gso);
+
 
     poll.registry()
         .register(&mut socket, mio::Token(0), mio::Interest::READABLE)
@@ -676,16 +681,22 @@ pub fn server_loop(
                 continue;
             }
 
-            let send_result = if enable_pacing {
-                send_with_pacing(
+            let send_result = if enable_pacing || enable_gso {
+                // assume we are on linux
+                send_linux_optimized(
                     &socket,
                     &buf[..total_write],
                     &dst_info.unwrap(),
+                    enable_pacing,
                     enable_gso,
                     client.max_datagram_size as u16,
                 )
             } else {
-                socket.send(&buf[..total_write])
+                send_generic(
+                    &socket,
+                    &buf[..total_write],
+                    &dst_info.unwrap(),
+                )
             };
 
             match send_result {
@@ -958,10 +969,11 @@ fn std_time_to_u64(time: &std::time::Instant) -> u64 {
 }
 
 #[cfg(target_os = "linux")]
-fn send_with_pacing(
+fn send_linux_optimized(
     socket: &mio::net::UdpSocket,
     buf: &[u8],
     send_info: &quiche::SendInfo,
+    enable_pacing: bool,
     enable_gso: bool,
     segment_size: u16,
 ) -> std::io::Result<usize> {
@@ -972,18 +984,22 @@ fn send_with_pacing(
     use std::io::IoSlice;
     use std::os::unix::io::AsRawFd;
 
-    let iov = [IoSlice::new(buf)];
-    let dst = SockaddrStorage::from(send_info.to);
-    let sockfd = socket.as_raw_fd();
+    let mut cmgs: SmallVec<ControlMessage, 2> = SmallVec::new();
 
-    // Pacing option.
-    let send_time = std_time_to_u64(&send_info.at);
-    let cmsg_txtime = ControlMessage::TxTime(&send_time);
+    if enable_pacing {
+        // Pacing option.
+        let send_time = std_time_to_u64(&send_info.at);
+        let cmsg_txtime = ControlMessage::TxTime(&send_time);
+        cmgs.push(cmsg_txtime);
+    }
 
-    let mut cmgs = vec![cmsg_txtime];
     if enable_gso {
         cmgs.push(ControlMessage::UdpGsoSegments(&segment_size));
     }
+
+    let iov = [IoSlice::new(buf)];
+    let dst = SockaddrStorage::from(send_info.to);
+    let sockfd = socket.as_raw_fd();
 
     match sendmsg(sockfd, &iov, &cmgs, MsgFlags::empty(), Some(&dst)) {
         Ok(v) => Ok(v),
@@ -991,18 +1007,25 @@ fn send_with_pacing(
     }
 }
 
-// untested workaround for non-linux systems
 #[cfg(not(target_os = "linux"))]
-fn send_with_pacing(
+fn send_linux_optimized(
     socket: &mio::net::UdpSocket,
     buf: &[u8],
     send_info: &quiche::SendInfo,
+    _enable_pacing: bool,
     _enable_gso: bool,
     _segment_size: u16,
 ) -> std::io::Result<usize> {
-
-    match socket.send(buf) {
-        Ok(v) => Ok(v),
-        Err(e) => Err(e.into()),
-    }
+    // note: this will implicitly be determined from set_txtime_sockopt
+   panic!("send_with_pacing is not supported on this platform");
 }
+
+// send without any pacing etc.
+fn send_generic(
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
+) -> std::io::Result<usize> {
+    socket.send_to(&buf, send_info.to)
+}
+
