@@ -304,10 +304,10 @@ fn send_linux_optimized(
     use std::io::IoSlice;
     use std::os::unix::io::AsRawFd;
 
-    let cmgs: &[ControlMessage] = if enable_gso {
-        &[ControlMessage::UdpGsoSegments(&segment_size)]
-    } else {
-        &[]
+    let mut cmgs = Vec::with_capacity(2);
+
+    if enable_gso {
+        cmgs.push(ControlMessage::UdpGsoSegments(&segment_size));
     };
 
     let iov = [IoSlice::new(buf)];
