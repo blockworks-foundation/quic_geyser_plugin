@@ -1001,7 +1001,7 @@ fn send_linux_optimized(
     let dst = SockaddrStorage::from(send_info.to);
     let sockfd = socket.as_raw_fd();
 
-    match sendmsg(sockfd, &iov, &cmgs, MsgFlags::empty(), Some(&dst)) {
+    match sendmsg(sockfd, &iov, cmgs.as_ref(), MsgFlags::empty(), Some(&dst)) {
         Ok(v) => Ok(v),
         Err(e) => Err(e.into()),
     }
