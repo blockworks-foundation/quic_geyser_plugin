@@ -26,8 +26,6 @@ impl Client {
             connection_parameters.ack_exponent,
         )?;
         let server_address: SocketAddr = parse_host_port(&server_address)?;
-        let socket_addr: SocketAddr =
-            parse_host_port("[::]:0").expect("Socket address should be returned");
         let is_connected = Arc::new(AtomicBool::new(false));
         let (filters_sender, rx_sent_queue) = mio_channel::channel();
         let (sx_recv_queue, client_rx_queue) = std::sync::mpsc::channel();
@@ -36,7 +34,6 @@ impl Client {
         let _client_loop_jh = std::thread::spawn(move || {
             if let Err(e) = client_loop(
                 config,
-                socket_addr,
                 server_address,
                 rx_sent_queue,
                 sx_recv_queue,

@@ -3,6 +3,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
     time::{Duration, Instant},
 };
+use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
 
 use log::{debug, error, info, trace};
 use quic_geyser_common::{defaults::MAX_DATAGRAM_SIZE, message::Message};
@@ -15,16 +16,16 @@ use quic_geyser_quiche_utils::{
 
 use anyhow::bail;
 use ring::rand::{SecureRandom, SystemRandom};
+use quic_geyser_common::net::parse_host_port;
 
 pub fn client_loop(
     mut config: quiche::Config,
-    socket_addr: SocketAddr,
     server_address: SocketAddr,
     mut message_send_queue: mio_channel::Receiver<Message>,
     message_recv_queue: std::sync::mpsc::Sender<Message>,
     is_connected: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
-    let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
+    let mut socket = mio::net::UdpSocket::bind("0.0.0.0:0".parse().unwrap())?;
     let enable_gso = detect_gso(&socket, MAX_DATAGRAM_SIZE);
     let mut poll = mio::Poll::new()?;
     let mut events = mio::Events::with_capacity(1024);
@@ -268,7 +269,6 @@ pub fn client_loop(
     Ok(())
 }
 
-
 #[cfg(target_os = "linux")]
 fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
     use nix::sys::socket::setsockopt;
@@ -332,7 +332,7 @@ fn send_linux_optimized(
     panic!("send_with_pacing is not supported on this platform");
 }
 
-// send without any pacing etc.
+// send without any gso etc.
 fn send_generic(
     socket: &mio::net::UdpSocket,
     buf: &[u8],
@@ -475,7 +475,6 @@ mod tests {
             let is_connected = Arc::new(AtomicBool::new(false));
             if let Err(e) = client_loop(
                 client_config,
-                socket_addr,
                 server_addr,
                 rx_sent_queue,
                 sx_recv_queue,
