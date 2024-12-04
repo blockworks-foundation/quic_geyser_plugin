@@ -118,7 +118,7 @@ impl<T: Ord + Display + Default + Copy> Stats<T> {
 }
 
 fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>) {
-    println!("Connecting");
+    println!("Connecting (blocking=quiche)");
     let (client, reciever) =
         quic_geyser_blocking_client::client::Client::new(args.url, ConnectionParameters::default())
             .unwrap();
@@ -223,7 +223,7 @@ fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>
 }
 
 async fn non_blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>) {
-    println!("Connecting");
+    println!("Connecting (non-blocking=quinn)");
     let (client, mut reciever, _tasks) = Client::new(
         args.url,
         ConnectionParameters {
