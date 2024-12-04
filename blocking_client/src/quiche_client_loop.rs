@@ -25,6 +25,7 @@ pub fn client_loop(
     is_connected: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
+    let enable_gso = detect_gso(&socket, MAX_DATAGRAM_SIZE);
     let mut poll = mio::Poll::new()?;
     let mut events = mio::Events::with_capacity(1024);
     let mut buf = [0; 65535];
@@ -46,6 +47,7 @@ pub fn client_loop(
         bail!("Error filling scid");
     }
     log::info!("connecing client with quiche");
+    info!("quic client: enable gso? {}", enable_gso);
 
     let scid = quiche::ConnectionId::from_ref(&scid);
     let local_addr = socket.local_addr()?;
@@ -229,7 +231,23 @@ pub fn client_loop(
                 }
             };
 
-            if let Err(e) = socket.send_to(&out[..write], send_info.to) {
+            let send_result = if enable_gso {
+                send_linux_optimized(
+                    &socket,
+                    &out[..write],
+                    &send_info,
+                    enable_gso,
+                    MAX_DATAGRAM_SIZE as u16,
+                )
+            } else {
+                send_generic(
+                    &socket,
+                    &out[..write],
+                    &send_info
+                )
+            };
+
+            if let Err(e) = send_result {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
                     debug!("send() would block");
                     break;
@@ -249,6 +267,81 @@ pub fn client_loop(
     }
     Ok(())
 }
+
+
+#[cfg(target_os = "linux")]
+fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
+    use nix::sys::socket::setsockopt;
+    use nix::sys::socket::sockopt::UdpGsoSegment;
+    use std::os::unix::io::AsRawFd;
+
+    // mio::net::UdpSocket doesn't implement AsFd (yet?).
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(socket.as_raw_fd()) };
+
+    setsockopt(&fd, UdpGsoSegment, &(segment_size as i32)).is_ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn detect_gso(_: &mio::net::UdpSocket, _: usize) -> bool {
+    false
+}
+
+
+
+
+#[cfg(target_os = "linux")]
+fn send_linux_optimized(
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
+    enable_gso: bool,
+    segment_size: u16,
+) -> std::io::Result<usize> {
+    use nix::sys::socket::sendmsg;
+    use nix::sys::socket::ControlMessage;
+    use nix::sys::socket::MsgFlags;
+    use nix::sys::socket::SockaddrStorage;
+    use std::io::IoSlice;
+    use std::os::unix::io::AsRawFd;
+
+    let cmgs = if enable_gso {
+        [ControlMessage::UdpGsoSegments(&segment_size)];
+    } else {
+        [];
+    };
+
+    let iov = [IoSlice::new(buf)];
+    let dst = SockaddrStorage::from(send_info.to);
+    let sockfd = socket.as_raw_fd();
+
+    match sendmsg(sockfd, &iov, &cmgs, MsgFlags::empty(), Some(&dst)) {
+        Ok(v) => Ok(v),
+        Err(e) => Err(e.into()),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn send_linux_optimized(
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
+    _enable_gso: bool,
+    _segment_size: u16,
+) -> std::io::Result<usize> {
+    // note: this will implicitly be determined from set_txtime_sockopt
+    panic!("send_with_pacing is not supported on this platform");
+}
+
+// send without any pacing etc.
+fn send_generic(
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
+) -> std::io::Result<usize> {
+    socket.send_to(&buf, send_info.to)
+}
+
+
 
 #[cfg(test)]
 mod tests {
