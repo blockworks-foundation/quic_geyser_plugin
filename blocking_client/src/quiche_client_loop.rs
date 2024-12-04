@@ -305,9 +305,9 @@ fn send_linux_optimized(
     use std::os::unix::io::AsRawFd;
 
     let cmgs = if enable_gso {
-        [ControlMessage::UdpGsoSegments(&segment_size)];
+        [ControlMessage::UdpGsoSegments(&segment_size)]
     } else {
-        [];
+        []
     };
 
     let iov = [IoSlice::new(buf)];
