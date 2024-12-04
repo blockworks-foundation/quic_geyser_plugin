@@ -56,6 +56,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net;
 use std::net::SocketAddr;
+use arrayvec::ArrayVec;
 use nix::sys::socket::SockaddrStorage;
 
 lazy_static::lazy_static! {
@@ -984,7 +985,7 @@ fn send_linux_optimized(
     use std::io::IoSlice;
     use std::os::unix::io::AsRawFd;
 
-    let mut cmgs = Vec::with_capacity(2);
+    let mut cmgs = ArrayVec::<ControlMessage, 2>::new();;
 
     let send_time = std_time_to_u64(&send_info.at);
     if enable_pacing {

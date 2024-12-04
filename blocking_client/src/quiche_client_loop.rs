@@ -474,7 +474,6 @@ mod tests {
         let _client_loop_jh = std::thread::spawn(move || {
             let client_config =
                 configure_client(maximum_concurrent_streams, 20_000_000, 1, 25, 3).unwrap();
-            let socket_addr: SocketAddr = parse_host_port("[::]:0").unwrap();
             let is_connected = Arc::new(AtomicBool::new(false));
             if let Err(e) = client_loop(
                 client_config,
