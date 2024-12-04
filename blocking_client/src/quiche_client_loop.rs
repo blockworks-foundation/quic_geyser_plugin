@@ -14,7 +14,7 @@ use quic_geyser_quiche_utils::{
     quiche_utils::{generate_cid_and_reset_token, get_next_unidi, StreamBufferMap},
 };
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use ring::rand::{SecureRandom, SystemRandom};
 use quic_geyser_common::net::parse_host_port;
 
@@ -57,7 +57,7 @@ pub fn client_loop(
 
     // sending initial connection request
     {
-        let (write, send_info) = conn.send(&mut out).expect("initial send failed");
+        let (write, send_info) = conn.send(&mut out).context("initial send failed")?;
 
         if let Err(e) = socket.send_to(&out[..write], send_info.to) {
             bail!("send() failed: {:?}", e);
@@ -74,19 +74,22 @@ pub fn client_loop(
 
     let mut instance = Instant::now();
     loop {
-        poll.poll(&mut events, conn.timeout()).unwrap();
+        poll.poll(&mut events, conn.timeout()).context("poll")?;
 
         if conn.is_established() && !conn.is_closed() {
             match message_send_queue.try_recv() {
                 Ok(message) => {
                     let binary_message = message.to_binary_stream();
                     log::debug!("send message : {message:?}");
-                    let _ = send_message(
+                    let send_result = send_message(
                         &mut conn,
                         &mut stream_sender_map,
                         send_stream_id,
                         binary_message,
                     );
+                    if let Err(e) = send_result {
+                        log::error!("Error sending message : {e}");
+                    }
                 }
                 Err(e) => {
                     match e {
