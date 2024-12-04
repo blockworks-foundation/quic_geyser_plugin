@@ -18,7 +18,7 @@ quiche = { workspace = true }
 mio = { workspace = true }
 mio_channel = { workspace = true }
 
-[target.'cfg(linux)'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 nix = { version = "0.27", features = ["net", "socket", "uio"] }
 
