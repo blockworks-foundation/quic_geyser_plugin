@@ -904,7 +904,7 @@ fn handle_path_events(client: &mut Client) {
 
 
 #[cfg(target_os = "linux")]
-pub fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
+fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
     use nix::sys::socket::setsockopt;
     use nix::sys::socket::sockopt::UdpGsoSegment;
     use std::os::unix::io::AsRawFd;
@@ -916,7 +916,7 @@ pub fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn detect_gso(_: &mio::net::UdpSocket, _: usize) -> bool {
+fn detect_gso(_: &mio::net::UdpSocket, _: usize) -> bool {
     false
 }
 
@@ -960,6 +960,7 @@ const NANOS_PER_SEC: u64 = 1_000_000_000;
 
 const INSTANT_ZERO: std::time::Instant = unsafe { std::mem::transmute(std::time::UNIX_EPOCH) };
 
+#[warn(dead_code)]
 fn std_time_to_u64(time: &std::time::Instant) -> u64 {
     let raw_time = time.duration_since(INSTANT_ZERO);
     let sec = raw_time.as_secs();
@@ -1000,7 +1001,7 @@ fn send_linux_optimized(
     let dst = SockaddrStorage::from(send_info.to);
     let sockfd = socket.as_raw_fd();
 
-    match sendmsg(sockfd, &iov, cmgs.as_ref(), MsgFlags::empty(), Some(&dst)) {
+    match sendmsg(sockfd, &iov, &cmgs, MsgFlags::empty(), Some(&dst)) {
         Ok(v) => Ok(v),
         Err(e) => Err(e.into()),
     }
