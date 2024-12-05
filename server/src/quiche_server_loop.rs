@@ -172,7 +172,7 @@ pub fn server_loop(
     let mut events = mio::Events::with_capacity(1024);
 
     // Create the UDP listening socket, and register it with the event loop.
-    let mut socket = mio::net::UdpSocket::bind(socket_addr).unwrap();
+    let mut socket = mio::net::UdpSocket::bind("[::]:0".parse().unwrap()).unwrap();
 
     let enable_pacing = if quic_params.enable_pacing {
         set_txtime_sockopt(&socket).is_ok()

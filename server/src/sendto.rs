@@ -27,6 +27,7 @@
 use std::cmp;
 
 use std::io;
+use nix::sys::socket::sendmsg;
 
 /// For Linux, try to detect GSO is available.
 #[cfg(target_os = "linux")]
@@ -97,6 +98,52 @@ fn send_to_gso_pacing(
     panic!("send_to_gso() should not be called on non-linux platforms");
 }
 
+
+/// Send packets using sendmsg() with pacing but without GSO.
+#[cfg(target_os = "linux")]
+fn send_to_pacing(
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
+) -> io::Result<usize> {
+    use nix::sys::socket::sendmsg;
+    use nix::sys::socket::ControlMessage;
+    use nix::sys::socket::MsgFlags;
+    use nix::sys::socket::SockaddrStorage;
+    use std::io::IoSlice;
+    use std::os::unix::io::AsRawFd;
+
+    let iov = [IoSlice::new(buf)];
+    let dst = SockaddrStorage::from(send_info.to);
+    let sockfd = socket.as_raw_fd();
+
+    // Pacing option.
+    let send_time = std_time_to_u64(&send_info.at);
+    let cmsg_txtime = ControlMessage::TxTime(&send_time);
+
+    match sendmsg(
+        sockfd,
+        &iov,
+        &[cmsg_txtime],
+        MsgFlags::empty(),
+        Some(&dst),
+    ) {
+        Ok(v) => Ok(v),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// For non-Linux platforms.
+#[cfg(not(target_os = "linux"))]
+fn send_to_pacing(
+    _socket: &mio::net::UdpSocket,
+    _buf: &[u8],
+    _send_info: &quiche::SendInfo,
+) -> io::Result<usize> {
+    panic!("send_to_gso() should not be called on non-linux platforms");
+}
+
+
 /// A wrapper function of send_to().
 ///
 /// When GSO and SO_TXTIME are enabled, send packets using send_to_gso().
@@ -111,6 +158,16 @@ pub fn send_to(
 ) -> io::Result<usize> {
     if pacing && enable_gso {
         match send_to_gso_pacing(socket, buf, send_info, segment_size) {
+            Ok(v) => {
+                return Ok(v);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    } else if pacing {
+        // pacing but no GSO
+        match send_to_pacing(socket, buf, send_info) {
             Ok(v) => {
                 return Ok(v);
             }

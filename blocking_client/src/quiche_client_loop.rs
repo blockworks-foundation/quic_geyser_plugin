@@ -26,7 +26,7 @@ pub fn client_loop(
     message_recv_queue: std::sync::mpsc::Sender<Message>,
     is_connected: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
-    let mut socket = mio::net::UdpSocket::bind("0.0.0.0:0".parse().unwrap())?;
+    let mut socket = mio::net::UdpSocket::bind("[::]:0".parse().unwrap())?;
     let enable_gso = detect_gso(&socket, MAX_DATAGRAM_SIZE);
     let mut poll = mio::Poll::new()?;
     let mut events = mio::Events::with_capacity(1024);
