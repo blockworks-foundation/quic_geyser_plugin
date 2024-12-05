@@ -1,12 +1,13 @@
 {
   "libpath": "target/release/libquic_geyser_plugin.so",
   "quic_plugin": {
-    "address": "[::]:8001",
-    "allow_accounts_at_startup": true,
+    "address": "[::]:10900",
+    "quic_parameters" : {
+        "disconnect_laggy_client" : false
+    },
     "compression_parameters": {
-        "compression_type": {
-            "Lz4Fast": 8
-        }
+        "compression_type": "None"
       }
   }
 }
+
