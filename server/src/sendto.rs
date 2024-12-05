@@ -97,7 +97,6 @@ fn send_to_gso_pacing(
     panic!("send_to_gso() should not be called on non-linux platforms");
 }
 
-
 /// Send packets using sendmsg() with pacing but without GSO.
 #[cfg(target_os = "linux")]
 fn send_to_pacing(
@@ -120,13 +119,7 @@ fn send_to_pacing(
     let send_time = std_time_to_u64(&send_info.at);
     let cmsg_txtime = ControlMessage::TxTime(&send_time);
 
-    match sendmsg(
-        sockfd,
-        &iov,
-        &[cmsg_txtime],
-        MsgFlags::empty(),
-        Some(&dst),
-    ) {
+    match sendmsg(sockfd, &iov, &[cmsg_txtime], MsgFlags::empty(), Some(&dst)) {
         Ok(v) => Ok(v),
         Err(e) => Err(e.into()),
     }
@@ -141,7 +134,6 @@ fn send_to_pacing(
 ) -> io::Result<usize> {
     panic!("send_to_gso() should not be called on non-linux platforms");
 }
-
 
 /// A wrapper function of send_to().
 ///
