@@ -25,6 +25,7 @@
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use crate::configure_server::configure_server;
+use crate::sendto::{detect_gso, send_to};
 use itertools::Itertools;
 use log::{info, trace};
 use mio::Interest;
@@ -56,9 +57,6 @@ use std::collections::HashMap;
 use std::io;
 use std::net;
 use std::net::SocketAddr;
-use arrayvec::ArrayVec;
-use nix::sys::socket::SockaddrStorage;
-use crate::sendto::{detect_gso, send_to};
 
 lazy_static::lazy_static! {
     static ref NUMBER_OF_CLIENTS: IntGauge =
@@ -189,7 +187,6 @@ pub fn server_loop(
         false
     };
     info!("quic server: enable gso? {}", enable_gso);
-
 
     poll.registry()
         .register(&mut socket, mio::Token(0), mio::Interest::READABLE)
@@ -894,7 +891,6 @@ fn handle_path_events(client: &mut Client) {
         }
     }
 }
-
 
 /// Set SO_TXTIME socket option.
 ///

@@ -50,7 +50,9 @@ pub fn detect_gso(_socket: &mio::net::UdpSocket, _segment_size: usize) -> bool {
 /// Send packets using sendmsg() with GSO.
 #[cfg(target_os = "linux")]
 fn send_to_gso_pacing(
-    socket: &mio::net::UdpSocket, buf: &[u8], send_info: &quiche::SendInfo,
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
     segment_size: usize,
 ) -> io::Result<usize> {
     use nix::sys::socket::sendmsg;
@@ -87,7 +89,9 @@ fn send_to_gso_pacing(
 /// For non-Linux platforms.
 #[cfg(not(target_os = "linux"))]
 fn send_to_gso_pacing(
-    _socket: &mio::net::UdpSocket, _buf: &[u8], _send_info: &quiche::SendInfo,
+    _socket: &mio::net::UdpSocket,
+    _buf: &[u8],
+    _send_info: &quiche::SendInfo,
     _segment_size: usize,
 ) -> io::Result<usize> {
     panic!("send_to_gso() should not be called on non-linux platforms");
@@ -98,17 +102,21 @@ fn send_to_gso_pacing(
 /// When GSO and SO_TXTIME are enabled, send packets using send_to_gso().
 /// Otherwise, send packets using socket.send_to().
 pub fn send_to(
-    socket: &mio::net::UdpSocket, buf: &[u8], send_info: &quiche::SendInfo,
-    segment_size: usize, pacing: bool, enable_gso: bool,
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
+    segment_size: usize,
+    pacing: bool,
+    enable_gso: bool,
 ) -> io::Result<usize> {
     if pacing && enable_gso {
         match send_to_gso_pacing(socket, buf, send_info, segment_size) {
             Ok(v) => {
                 return Ok(v);
-            },
+            }
             Err(e) => {
                 return Err(e);
-            },
+            }
         }
     }
 
@@ -122,7 +130,7 @@ pub fn send_to(
         match socket.send_to(&buf[off..off + pkt_len], send_info.to) {
             Ok(v) => {
                 written += v;
-            },
+            }
             Err(e) => return Err(e),
         }
 
@@ -137,8 +145,7 @@ pub fn send_to(
 fn std_time_to_u64(time: &std::time::Instant) -> u64 {
     const NANOS_PER_SEC: u64 = 1_000_000_000;
 
-    const INSTANT_ZERO: std::time::Instant =
-        unsafe { std::mem::transmute(std::time::UNIX_EPOCH) };
+    const INSTANT_ZERO: std::time::Instant = unsafe { std::mem::transmute(std::time::UNIX_EPOCH) };
 
     let raw_time = time.duration_since(INSTANT_ZERO);
 

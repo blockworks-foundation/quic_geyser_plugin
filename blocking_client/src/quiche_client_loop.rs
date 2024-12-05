@@ -13,9 +13,9 @@ use quic_geyser_quiche_utils::{
     quiche_utils::{generate_cid_and_reset_token, get_next_unidi, StreamBufferMap},
 };
 
+use crate::sendto::{detect_gso, send_to};
 use anyhow::{bail, Context};
 use ring::rand::{SecureRandom, SystemRandom};
-use crate::sendto::{detect_gso, send_to};
 
 const ENABLE_PACING: bool = true;
 
