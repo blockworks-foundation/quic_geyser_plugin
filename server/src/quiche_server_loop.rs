@@ -25,8 +25,9 @@
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use crate::configure_server::configure_server;
+use crate::sendto::{detect_gso, send_to};
 use itertools::Itertools;
-use log::trace;
+use log::{info, trace};
 use mio::Interest;
 use mio::Token;
 use prometheus::opts;
@@ -178,12 +179,14 @@ pub fn server_loop(
     } else {
         false
     };
+    info!("quic server: enable pacing? {}", enable_pacing);
 
     let enable_gso = if quic_params.enable_gso {
         detect_gso(&socket, MAX_DATAGRAM_SIZE)
     } else {
         false
     };
+    info!("quic server: enable gso? {}", enable_gso);
 
     poll.registry()
         .register(&mut socket, mio::Token(0), mio::Interest::READABLE)
@@ -676,17 +679,14 @@ pub fn server_loop(
                 continue;
             }
 
-            let send_result = if enable_pacing {
-                send_with_pacing(
-                    &socket,
-                    &buf[..total_write],
-                    &dst_info.unwrap(),
-                    enable_gso,
-                    client.max_datagram_size as u16,
-                )
-            } else {
-                socket.send(&buf[..total_write])
-            };
+            let send_result = send_to(
+                &socket,
+                &buf[..total_write],
+                &dst_info.unwrap(),
+                client.max_datagram_size,
+                enable_pacing,
+                enable_gso,
+            );
 
             match send_result {
                 Ok(written) => {
@@ -892,17 +892,6 @@ fn handle_path_events(client: &mut Client) {
     }
 }
 
-pub fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
-    use nix::sys::socket::setsockopt;
-    use nix::sys::socket::sockopt::UdpGsoSegment;
-    use std::os::unix::io::AsRawFd;
-
-    // mio::net::UdpSocket doesn't implement AsFd (yet?).
-    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(socket.as_raw_fd()) };
-
-    setsockopt(&fd, UdpGsoSegment, &(segment_size as i32)).is_ok()
-}
-
 /// Set SO_TXTIME socket option.
 ///
 /// This socket option is set to send to kernel the outgoing UDP
@@ -937,48 +926,4 @@ fn set_txtime_sockopt(_: &mio::net::UdpSocket) -> io::Result<()> {
         ErrorKind::Other,
         "Not supported on this platform",
     ))
-}
-
-const NANOS_PER_SEC: u64 = 1_000_000_000;
-
-const INSTANT_ZERO: std::time::Instant = unsafe { std::mem::transmute(std::time::UNIX_EPOCH) };
-
-fn std_time_to_u64(time: &std::time::Instant) -> u64 {
-    let raw_time = time.duration_since(INSTANT_ZERO);
-    let sec = raw_time.as_secs();
-    let nsec = raw_time.subsec_nanos();
-    sec * NANOS_PER_SEC + nsec as u64
-}
-
-fn send_with_pacing(
-    socket: &mio::net::UdpSocket,
-    buf: &[u8],
-    send_info: &quiche::SendInfo,
-    enable_gso: bool,
-    segment_size: u16,
-) -> std::io::Result<usize> {
-    use nix::sys::socket::sendmsg;
-    use nix::sys::socket::ControlMessage;
-    use nix::sys::socket::MsgFlags;
-    use nix::sys::socket::SockaddrStorage;
-    use std::io::IoSlice;
-    use std::os::unix::io::AsRawFd;
-
-    let iov = [IoSlice::new(buf)];
-    let dst = SockaddrStorage::from(send_info.to);
-    let sockfd = socket.as_raw_fd();
-
-    // Pacing option.
-    let send_time = std_time_to_u64(&send_info.at);
-    let cmsg_txtime = ControlMessage::TxTime(&send_time);
-
-    let mut cmgs = vec![cmsg_txtime];
-    if enable_gso {
-        cmgs.push(ControlMessage::UdpGsoSegments(&segment_size));
-    }
-
-    match sendmsg(sockfd, &iov, &cmgs, MsgFlags::empty(), Some(&dst)) {
-        Ok(v) => Ok(v),
-        Err(e) => Err(e.into()),
-    }
 }

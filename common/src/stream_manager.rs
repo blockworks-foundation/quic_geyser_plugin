@@ -65,6 +65,7 @@ impl<const BUFFER_LEN: usize> StreamBuffer<BUFFER_LEN> {
 mod tests {
     use circular_buffer::CircularBuffer;
     use itertools::Itertools;
+    use log::warn;
     use rand::{rngs::ThreadRng, Rng};
     use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
 
@@ -147,6 +148,8 @@ mod tests {
                 let message = create_random_message(&mut rng);
                 if buffer.append_bytes(&message.to_binary_stream()) {
                     messages_appended.push(message);
+                } else {
+                    warn!("Buffer full");
                 }
             } else {
                 let buf = buffer.as_slices();
