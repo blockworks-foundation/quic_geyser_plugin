@@ -18,7 +18,10 @@ pub fn recv_message(
             match connection.stream_recv(stream_id, &mut buf) {
                 Ok((read, _)) => {
                     log::trace!("read {} on stream {}", read, stream_id);
-                    total_buf.append_bytes(&buf[..read]);
+                    let buf_result = total_buf.append_bytes(&buf[..read]);
+                    if !buf_result {
+                        bail!("buffer too short");
+                    }
                 }
                 Err(e) => match &e {
                     quiche::Error::Done => {
@@ -47,7 +50,10 @@ pub fn recv_message(
             match connection.stream_recv(stream_id, &mut buf) {
                 Ok((read, _)) => {
                     log::trace!("read {} on stream {}", read, stream_id);
-                    total_buf.append_bytes(&buf[..read]);
+                    let buf_result = total_buf.append_bytes(&buf[..read]);
+                    if !buf_result {
+                        bail!("buffer too short");
+                    }
                 }
                 Err(e) => match &e {
                     quiche::Error::Done => {

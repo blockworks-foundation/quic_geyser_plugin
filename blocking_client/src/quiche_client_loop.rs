@@ -13,18 +13,21 @@ use quic_geyser_quiche_utils::{
     quiche_utils::{generate_cid_and_reset_token, get_next_unidi, StreamBufferMap},
 };
 
-use anyhow::bail;
+use crate::sendto::{detect_gso, send_to};
+use anyhow::{bail, Context};
 use ring::rand::{SecureRandom, SystemRandom};
+
+const ENABLE_PACING: bool = true;
 
 pub fn client_loop(
     mut config: quiche::Config,
-    socket_addr: SocketAddr,
     server_address: SocketAddr,
     mut message_send_queue: mio_channel::Receiver<Message>,
     message_recv_queue: std::sync::mpsc::Sender<Message>,
     is_connected: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
-    let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
+    let mut socket = mio::net::UdpSocket::bind("[::]:0".parse().unwrap())?;
+    let enable_gso = detect_gso(&socket, MAX_DATAGRAM_SIZE);
     let mut poll = mio::Poll::new()?;
     let mut events = mio::Events::with_capacity(1024);
     let mut buf = [0; 65535];
@@ -46,6 +49,7 @@ pub fn client_loop(
         bail!("Error filling scid");
     }
     log::info!("connecing client with quiche");
+    info!("quic client: enable gso? {}", enable_gso);
 
     let scid = quiche::ConnectionId::from_ref(&scid);
     let local_addr = socket.local_addr()?;
@@ -54,7 +58,7 @@ pub fn client_loop(
 
     // sending initial connection request
     {
-        let (write, send_info) = conn.send(&mut out).expect("initial send failed");
+        let (write, send_info) = conn.send(&mut out).context("initial send failed")?;
 
         if let Err(e) = socket.send_to(&out[..write], send_info.to) {
             bail!("send() failed: {:?}", e);
@@ -71,19 +75,22 @@ pub fn client_loop(
 
     let mut instance = Instant::now();
     loop {
-        poll.poll(&mut events, conn.timeout()).unwrap();
+        poll.poll(&mut events, conn.timeout()).context("poll")?;
 
         if conn.is_established() && !conn.is_closed() {
             match message_send_queue.try_recv() {
                 Ok(message) => {
                     let binary_message = message.to_binary_stream();
                     log::debug!("send message : {message:?}");
-                    let _ = send_message(
+                    let send_result = send_message(
                         &mut conn,
                         &mut stream_sender_map,
                         send_stream_id,
                         binary_message,
                     );
+                    if let Err(e) = send_result {
+                        log::error!("Error sending message : {e}");
+                    }
                 }
                 Err(e) => {
                     match e {
@@ -229,7 +236,16 @@ pub fn client_loop(
                 }
             };
 
-            if let Err(e) = socket.send_to(&out[..write], send_info.to) {
+            let send_result = send_to(
+                &socket,
+                &out[..write],
+                &send_info,
+                MAX_DATAGRAM_SIZE,
+                ENABLE_PACING,
+                enable_gso,
+            );
+
+            if let Err(e) = send_result {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
                     debug!("send() would block");
                     break;
@@ -378,11 +394,9 @@ mod tests {
         let _client_loop_jh = std::thread::spawn(move || {
             let client_config =
                 configure_client(maximum_concurrent_streams, 20_000_000, 1, 25, 3).unwrap();
-            let socket_addr: SocketAddr = parse_host_port("[::]:0").unwrap();
             let is_connected = Arc::new(AtomicBool::new(false));
             if let Err(e) = client_loop(
                 client_config,
-                socket_addr,
                 server_addr,
                 rx_sent_queue,
                 sx_recv_queue,

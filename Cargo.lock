@@ -2828,9 +2828,11 @@ dependencies = [
  "anyhow",
  "bincode",
  "itertools 0.10.5",
+ "libc",
  "log",
  "mio 0.8.11",
  "mio_channel",
+ "nix",
  "quic-geyser-common",
  "quic-geyser-quiche-utils",
  "quic-geyser-server",
@@ -2953,6 +2955,7 @@ name = "quic-geyser-server"
 version = "0.1.6"
 dependencies = [
  "anyhow",
+ "arrayvec",
  "bincode",
  "boring",
  "itertools 0.10.5",
