@@ -27,7 +27,6 @@
 use std::cmp;
 
 use std::io;
-use nix::sys::socket::sendmsg;
 
 /// For Linux, try to detect GSO is available.
 #[cfg(target_os = "linux")]
