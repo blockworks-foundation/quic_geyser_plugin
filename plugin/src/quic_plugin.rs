@@ -231,9 +231,9 @@ impl GeyserPlugin for QuicGeyserPlugin {
             return Ok(());
         };
 
-        let ReplicaBlockInfoVersions::V0_0_3(blockinfo) = blockinfo else {
+        let ReplicaBlockInfoVersions::V0_0_4(blockinfo) = blockinfo else {
             return Err(GeyserPluginError::AccountsUpdateError {
-                msg: "Unsupported account info version".to_string(),
+                msg: "Unsupported block info version".to_string(),
             });
         };
 
