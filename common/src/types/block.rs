@@ -5,6 +5,7 @@ use crate::compression::CompressionType;
 use super::{account::Account, block_meta::BlockMeta, transaction::Transaction};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub struct Block {
     pub meta: BlockMeta,
     pub transactions: Vec<u8>, // compressed transaction::Transaction

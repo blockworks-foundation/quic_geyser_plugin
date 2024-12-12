@@ -130,6 +130,7 @@ fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>
         filters.push(Filter::AccountsAll);
     }
 
+    sleep(Duration::from_millis(100));
     println!("Subscribing");
     client.subscribe(filters).unwrap();
     println!("Subscribed");

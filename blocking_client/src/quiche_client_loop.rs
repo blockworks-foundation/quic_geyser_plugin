@@ -5,19 +5,27 @@ use std::{
 };
 
 use log::{debug, error, info, trace};
-use quic_geyser_common::{defaults::MAX_DATAGRAM_SIZE, message::Message};
+use quic_geyser_common::{
+    defaults::MAX_DATAGRAM_SIZE, message::Message,
+    types::connections_parameters::ConnectionParameters,
+};
 
 use quic_geyser_quiche_utils::{
     quiche_reciever::{recv_message, ReadStreams},
     quiche_sender::{handle_writable, send_message},
-    quiche_utils::{generate_cid_and_reset_token, get_next_unidi, StreamBufferMap},
+    quiche_utils::{
+        detect_gso, generate_cid_and_reset_token, get_next_unidi, send_with_pacing,
+        set_txtime_sockopt, StreamBufferMap,
+    },
 };
 
 use anyhow::bail;
 use ring::rand::{SecureRandom, SystemRandom};
 
+use crate::configure_client::configure_client;
+
 pub fn client_loop(
-    mut config: quiche::Config,
+    connection_parameters: ConnectionParameters,
     socket_addr: SocketAddr,
     server_address: SocketAddr,
     mut message_send_queue: mio_channel::Receiver<Message>,
@@ -25,13 +33,51 @@ pub fn client_loop(
     is_connected: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let mut socket = mio::net::UdpSocket::bind(socket_addr)?;
+
+    let mut config = configure_client(&connection_parameters)?;
+
+    let enable_pacing = if connection_parameters.enable_pacing {
+        set_txtime_sockopt(&socket).is_ok()
+    } else {
+        false
+    };
+
+    let enable_gso = if connection_parameters.enable_gso {
+        detect_gso(&socket, MAX_DATAGRAM_SIZE)
+    } else {
+        false
+    };
+
+    let (message_binary_channel_sx, message_binary_channel_rx) =
+        std::sync::mpsc::channel::<Vec<u8>>();
+    let _message_deserializing_task = std::thread::spawn(move || loop {
+        match message_binary_channel_rx.recv() {
+            Ok(message_binary) => match bincode::deserialize::<Message>(&message_binary) {
+                Ok(message) => {
+                    if let Err(e) = message_recv_queue.send(message) {
+                        log::error!("Error sending message on the channel : {e}");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    log::error!("Error deserializing message : {e:?}");
+                }
+            },
+            Err(e) => {
+                log::error!("recv failed: {:?}", e);
+                break;
+            }
+        }
+    });
+
     let mut poll = mio::Poll::new()?;
     let mut events = mio::Events::with_capacity(1024);
     let mut buf = [0; 65535];
     let mut out = [0; MAX_DATAGRAM_SIZE];
     let mut read_streams = ReadStreams::new();
-    const READ_BUFFER_SIZE: usize = 1024 * 1024; // 1 MB
-    let send_stream_id = get_next_unidi(3, false, u64::MAX);
+    const READ_BUFFER_SIZE: usize = 16 * 1024 * 1024; // 16 MBs
+                                                      // client always sends on same stream
+    let send_stream_id = get_next_unidi(4, false, u64::MAX);
     let mut has_connected = false;
     // Generate a random source connection ID for the connection.
     let rng = SystemRandom::new();
@@ -50,7 +96,13 @@ pub fn client_loop(
     let scid = quiche::ConnectionId::from_ref(&scid);
     let local_addr = socket.local_addr()?;
 
-    let mut conn = quiche::connect(None, &scid, local_addr, server_address, &mut config)?;
+    let mut conn = quiche::connect(
+        Some("quiche_plugin_server"),
+        &scid,
+        local_addr,
+        server_address,
+        &mut config,
+    )?;
 
     // sending initial connection request
     {
@@ -61,29 +113,39 @@ pub fn client_loop(
         }
     }
 
-    poll.registry()
-        .register(
-            &mut message_send_queue,
-            mio::Token(1),
-            mio::Interest::READABLE,
-        )
-        .unwrap();
-
     let mut instance = Instant::now();
+    let mut connection_recently_established = false;
+    let ping_message = Message::Ping.to_binary_stream();
+    let mut loss_rate = 0.0;
+    let mut max_send_burst = MAX_DATAGRAM_SIZE * 10;
+    let mut continue_write = true;
+    let max_datagram_size = MAX_DATAGRAM_SIZE;
     loop {
-        poll.poll(&mut events, conn.timeout()).unwrap();
+        let timeout = match continue_write {
+            true => Some(std::time::Duration::from_secs(0)),
+            false => conn.timeout(),
+        };
 
-        if conn.is_established() && !conn.is_closed() {
+        poll.poll(&mut events, timeout).unwrap();
+
+        if connection_recently_established || events.iter().any(|e| e.token() == mio::Token(1)) {
+            if connection_recently_established {
+                connection_recently_established = false;
+            }
             match message_send_queue.try_recv() {
                 Ok(message) => {
                     let binary_message = message.to_binary_stream();
-                    log::debug!("send message : {message:?}");
-                    let _ = send_message(
+                    log::info!("send message : {message:?}");
+                    if let Err(e) = send_message(
                         &mut conn,
                         &mut stream_sender_map,
                         send_stream_id,
                         binary_message,
-                    );
+                    ) {
+                        log::error!(
+                            "Error sending filters : {e}, probably because filter is too long"
+                        );
+                    }
                 }
                 Err(e) => {
                     match e {
@@ -154,7 +216,7 @@ pub fn client_loop(
                 &mut conn,
                 &mut stream_sender_map,
                 send_stream_id,
-                Message::Ping.to_binary_stream(),
+                ping_message.clone(),
             ) {
                 log::error!("Error sending ping message : {e}");
             }
@@ -162,8 +224,17 @@ pub fn client_loop(
         }
 
         if !has_connected && conn.is_established() {
+            log::info!("connection established");
             has_connected = true;
+            connection_recently_established = true;
             is_connected.store(true, std::sync::atomic::Ordering::Relaxed);
+            poll.registry()
+                .register(
+                    &mut message_send_queue,
+                    mio::Token(1),
+                    mio::Interest::READABLE,
+                )
+                .unwrap();
         }
         // See whether source Connection IDs have been retired.
         while let Some(retired_scid) = conn.retired_scid_next() {
@@ -187,7 +258,7 @@ pub fn client_loop(
                     Ok(Some(messages)) => {
                         log::debug!("got messages: {}", messages.len());
                         for message in messages {
-                            if let Err(e) = message_recv_queue.send(message) {
+                            if let Err(e) = message_binary_channel_sx.send(message) {
                                 log::error!("Error sending message on the channel : {e}");
                                 break;
                             }
@@ -210,35 +281,65 @@ pub fn client_loop(
             }
         }
 
-        // Generate outgoing QUIC packets and send them on the UDP socket, until
-        // quiche reports that there are no more packets to be sent.
-        loop {
-            let (write, send_info) = match conn.send(&mut out) {
-                Ok(v) => v,
+        // Reduce max_send_burst by 25% if loss is increasing more than 0.1%.
+        let calculated_loss_rate = conn.stats().lost as f64 / conn.stats().sent as f64;
+        if calculated_loss_rate > loss_rate + 0.001 {
+            max_send_burst = max_send_burst / 4 * 3;
+            // Minimun bound of 10xMSS.
+            max_send_burst = max_send_burst.max(max_datagram_size * 10);
+            loss_rate = calculated_loss_rate;
+        }
 
+        let max_send_burst =
+            conn.send_quantum().min(max_send_burst) / max_datagram_size * max_datagram_size;
+        let mut total_write = 0;
+        let mut dst_info = None;
+
+        while total_write < max_send_burst {
+            let (write, mut send_info) = match conn.send(&mut buf[total_write..max_send_burst]) {
+                Ok(v) => v,
                 Err(quiche::Error::Done) => {
-                    debug!("done writing");
+                    trace!("{} done writing", conn.trace_id());
                     break;
                 }
-
                 Err(e) => {
-                    error!("send failed: {:?}", e);
-
+                    log::error!("{} send failed: {:?}", conn.trace_id(), e);
                     conn.close(false, 0x1, b"fail").ok();
                     break;
                 }
             };
 
-            if let Err(e) = socket.send_to(&out[..write], send_info.to) {
-                if e.kind() == std::io::ErrorKind::WouldBlock {
-                    debug!("send() would block");
-                    break;
-                }
+            total_write += write;
 
-                panic!("send() failed: {:?}", e);
+            // Use the first packet time to send, not the last.
+            send_info.to = server_address;
+            let _ = dst_info.get_or_insert(send_info);
+
+            if write < max_datagram_size {
+                continue_write = true;
+                break;
             }
+        }
 
-            debug!("written {}", write);
+        if total_write == 0 || dst_info.is_none() {
+            continue;
+        }
+
+        let send_result = if enable_pacing {
+            send_with_pacing(
+                &socket,
+                &buf[..total_write],
+                &dst_info.unwrap(),
+                enable_gso,
+                max_datagram_size as u16,
+            )
+        } else {
+            socket.send(&buf[..total_write])
+        };
+
+        if let Err(e) = send_result {
+            log::error!("sending failed with error : {e:?}");
+            break;
         }
 
         if conn.is_closed() {
@@ -270,10 +371,8 @@ mod tests {
         filters::Filter,
         message::Message,
         net::parse_host_port,
-        types::block_meta::SlotMeta,
+        types::{block_meta::SlotMeta, connections_parameters::ConnectionParameters},
     };
-
-    use crate::configure_client::configure_client;
 
     use super::client_loop;
 
@@ -376,8 +475,10 @@ mod tests {
         let (sx_recv_queue, client_rx_queue) = mpsc::channel();
 
         let _client_loop_jh = std::thread::spawn(move || {
-            let client_config =
-                configure_client(maximum_concurrent_streams, 20_000_000, 1, 25, 3).unwrap();
+            let client_config = ConnectionParameters {
+                max_number_of_streams: maximum_concurrent_streams,
+                ..Default::default()
+            };
             let socket_addr: SocketAddr = parse_host_port("[::]:0").unwrap();
             let is_connected = Arc::new(AtomicBool::new(false));
             if let Err(e) = client_loop(

@@ -11,7 +11,7 @@ pub fn recv_message(
     connection: &mut quiche::Connection,
     read_streams: &mut ReadStreams,
     stream_id: u64,
-) -> anyhow::Result<Option<Vec<Message>>> {
+) -> anyhow::Result<Option<Vec<Vec<u8>>>> {
     let mut buf = [0; MAX_DATAGRAM_SIZE];
     if let Some(total_buf) = read_streams.get_mut(&stream_id) {
         loop {
@@ -23,12 +23,14 @@ pub fn recv_message(
                 Err(e) => match &e {
                     quiche::Error::Done => {
                         let mut messages = vec![];
-                        if let Some((message, size)) =
-                            Message::from_binary_stream(total_buf.as_slices().0)
+
+                        while let Some((message, size)) =
+                            Message::from_binary_stream_binary(total_buf.as_slices().0)
                         {
                             total_buf.consume(size);
                             messages.push(message);
                         }
+
                         return Ok(if messages.is_empty() {
                             None
                         } else {
@@ -52,8 +54,8 @@ pub fn recv_message(
                 Err(e) => match &e {
                     quiche::Error::Done => {
                         let mut messages = vec![];
-                        if let Some((message, size)) =
-                            Message::from_binary_stream(total_buf.as_slices().0)
+                        while let Some((message, size)) =
+                            Message::from_binary_stream_binary(total_buf.as_slices().0)
                         {
                             total_buf.consume(size);
                             messages.push(message);

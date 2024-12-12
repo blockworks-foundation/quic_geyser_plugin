@@ -348,6 +348,7 @@ mod tests {
                 max_ack_delay: 25,
                 ack_exponent: 3,
                 enable_gso: false,
+                enable_pacing: false,
             },
         )
         .await

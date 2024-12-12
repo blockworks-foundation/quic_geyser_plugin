@@ -1,4 +1,3 @@
-use crate::configure_client::configure_client;
 use crate::quiche_client_loop::client_loop;
 use quic_geyser_common::filters::Filter;
 use quic_geyser_common::message::Message;
@@ -18,13 +17,7 @@ impl Client {
         server_address: String,
         connection_parameters: ConnectionParameters,
     ) -> anyhow::Result<(Client, std::sync::mpsc::Receiver<Message>)> {
-        let config = configure_client(
-            connection_parameters.max_number_of_streams,
-            connection_parameters.recieve_window_size,
-            connection_parameters.timeout_in_seconds,
-            connection_parameters.max_ack_delay,
-            connection_parameters.ack_exponent,
-        )?;
+        log::info!("client configured : {connection_parameters:?}");
         let server_address: SocketAddr = parse_host_port(&server_address)?;
         let socket_addr: SocketAddr =
             parse_host_port("[::]:0").expect("Socket address should be returned");
@@ -35,7 +28,7 @@ impl Client {
         let is_connected_client = is_connected.clone();
         let _client_loop_jh = std::thread::spawn(move || {
             if let Err(e) = client_loop(
-                config,
+                connection_parameters,
                 socket_addr,
                 server_address,
                 rx_sent_queue,
@@ -168,7 +161,8 @@ mod tests {
                 timeout_in_seconds: 10,
                 max_ack_delay: 25,
                 ack_exponent: 3,
-                enable_gso: false,
+                enable_gso: true,
+                enable_pacing: true,
             },
         )
         .unwrap();

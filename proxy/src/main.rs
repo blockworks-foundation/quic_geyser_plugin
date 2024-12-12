@@ -25,6 +25,7 @@ pub fn main() -> anyhow::Result<()> {
             max_ack_delay: args.max_ack_delay,
             ack_exponent: args.ack_exponent,
             enable_gso: true,
+            enable_pacing: true,
         },
     )?;
 

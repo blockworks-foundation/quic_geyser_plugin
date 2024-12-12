@@ -36,6 +36,18 @@ impl Message {
         Some((message, size + 8))
     }
 
+    // used by the network
+    pub fn from_binary_stream_binary(stream: &[u8]) -> Option<(Vec<u8>, usize)> {
+        if stream.len() < 8 {
+            return None;
+        }
+        let size = u64::from_le_bytes(stream[0..8].try_into().unwrap()) as usize;
+        if stream.len() < size + 8 {
+            return None;
+        }
+        Some((stream[8..size + 8].to_vec(), size + 8))
+    }
+
     pub fn to_binary_stream(&self) -> Vec<u8> {
         let binary = bincode::serialize(self).unwrap();
         let size = binary.len().to_le_bytes();

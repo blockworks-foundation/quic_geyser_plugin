@@ -162,6 +162,97 @@ pub fn generate_cid_and_reset_token<T: SecureRandom>(
     (scid, reset_token)
 }
 
+pub fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
+    use nix::sys::socket::setsockopt;
+    use nix::sys::socket::sockopt::UdpGsoSegment;
+    use std::os::unix::io::AsRawFd;
+
+    // mio::net::UdpSocket doesn't implement AsFd (yet?).
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(socket.as_raw_fd()) };
+
+    setsockopt(&fd, UdpGsoSegment, &(segment_size as i32)).is_ok()
+}
+
+/// Set SO_TXTIME socket option.
+///
+/// This socket option is set to send to kernel the outgoing UDP
+/// packet transmission time in the sendmsg syscall.
+///
+/// Note that this socket option is set only on linux platforms.
+#[cfg(target_os = "linux")]
+pub fn set_txtime_sockopt(sock: &mio::net::UdpSocket) -> std::io::Result<()> {
+    use nix::sys::socket::setsockopt;
+    use nix::sys::socket::sockopt::TxTime;
+    use std::os::unix::io::AsRawFd;
+
+    let config = nix::libc::sock_txtime {
+        clockid: libc::CLOCK_MONOTONIC,
+        flags: 0,
+    };
+
+    // mio::net::UdpSocket doesn't implement AsFd (yet?).
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock.as_raw_fd()) };
+
+    setsockopt(&fd, TxTime, &config)?;
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn set_txtime_sockopt(_: &mio::net::UdpSocket) -> io::Result<()> {
+    use std::io::Error;
+    use std::io::ErrorKind;
+
+    Err(Error::new(
+        ErrorKind::Other,
+        "Not supported on this platform",
+    ))
+}
+
+const NANOS_PER_SEC: u64 = 1_000_000_000;
+
+const INSTANT_ZERO: std::time::Instant = unsafe { std::mem::transmute(std::time::UNIX_EPOCH) };
+
+pub fn std_time_to_u64(time: &std::time::Instant) -> u64 {
+    let raw_time = time.duration_since(INSTANT_ZERO);
+    let sec = raw_time.as_secs();
+    let nsec = raw_time.subsec_nanos();
+    sec * NANOS_PER_SEC + nsec as u64
+}
+
+pub fn send_with_pacing(
+    socket: &mio::net::UdpSocket,
+    buf: &[u8],
+    send_info: &quiche::SendInfo,
+    enable_gso: bool,
+    segment_size: u16,
+) -> std::io::Result<usize> {
+    use nix::sys::socket::sendmsg;
+    use nix::sys::socket::ControlMessage;
+    use nix::sys::socket::MsgFlags;
+    use nix::sys::socket::SockaddrStorage;
+    use std::io::IoSlice;
+    use std::os::unix::io::AsRawFd;
+
+    let iov = [IoSlice::new(buf)];
+    let dst = SockaddrStorage::from(send_info.to);
+    let sockfd = socket.as_raw_fd();
+
+    // Pacing option.
+    let send_time = std_time_to_u64(&send_info.at);
+    let cmsg_txtime = ControlMessage::TxTime(&send_time);
+
+    let mut cmgs = vec![cmsg_txtime];
+    if enable_gso {
+        cmgs.push(ControlMessage::UdpGsoSegments(&segment_size));
+    }
+
+    match sendmsg(sockfd, &iov, &cmgs, MsgFlags::empty(), Some(&dst)) {
+        Ok(v) => Ok(v),
+        Err(e) => Err(e.into()),
+    }
+}
+
 // 16 MB per buffer
 pub const SEND_BUFFER_LEN: usize = 32 * 1024 * 1024;
 pub type StreamBufferMap<const BUFFER_LEN: usize> = BTreeMap<u64, StreamBuffer<BUFFER_LEN>>;

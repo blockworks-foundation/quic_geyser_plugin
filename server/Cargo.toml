@@ -21,10 +21,8 @@ boring = { workspace = true }
 mio = { workspace = true }
 mio_channel = { workspace = true }
 
-libc = "0.2"
-nix = { version = "0.27", features = ["net", "socket", "uio"] }
-
 quic-geyser-common = { workspace = true }
+
 prometheus = { workspace = true }
 lazy_static = { workspace = true }
 

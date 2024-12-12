@@ -1,3 +1,5 @@
+use std::io::BufRead;
+
 pub struct StreamBuffer<const BUFFER_LEN: usize> {
     buffer: Box<circular_buffer::CircularBuffer<BUFFER_LEN, u8>>,
 }
@@ -25,11 +27,11 @@ impl<const BUFFER_LEN: usize> StreamBuffer<BUFFER_LEN> {
     }
 
     pub fn consume(&mut self, nb_bytes: usize) -> bool {
-        if self.buffer.len() < nb_bytes {
+        let len = self.buffer.len();
+        if len < nb_bytes {
             return false;
         }
-        let d = self.buffer.drain(..nb_bytes);
-        assert_eq!(d.len(), nb_bytes);
+        self.buffer.consume(nb_bytes);
         true
     }
 

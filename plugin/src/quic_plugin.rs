@@ -33,7 +33,13 @@ impl GeyserPlugin for QuicGeyserPlugin {
 
     fn on_load(&mut self, config_file: &str, _is_reload: bool) -> PluginResult<()> {
         log::info!("loading quic_geyser plugin");
-        let config = Config::load_from_file(config_file)?;
+        let config = match Config::load_from_file(config_file) {
+            Ok(config) => config,
+            Err(e) => {
+                log::error!("Error loading config file: {}", e);
+                return Err(e);
+            }
+        };
         let compression_type = config.quic_plugin.compression_parameters.compression_type;
         let enable_block_builder = config.quic_plugin.enable_block_builder;
         let build_blocks_with_accounts = config.quic_plugin.build_blocks_with_accounts;
