@@ -8,16 +8,13 @@ use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
     plugin_error::QuicGeyserError,
     types::{
-        block_meta::BlockMeta,
+        block_meta::{BlockMeta, SlotStatus as QuicSlotStatus},
         slot_identifier::SlotIdentifier,
         transaction::{Transaction, TransactionMeta},
     },
 };
 use quic_geyser_server::quic_server::QuicServer;
-use solana_sdk::{
-    account::Account, clock::Slot, commitment_config::CommitmentConfig, message::v0::Message,
-    pubkey::Pubkey,
-};
+use solana_sdk::{account::Account, clock::Slot, message::v0::Message, pubkey::Pubkey};
 
 #[derive(Debug, Default)]
 pub struct QuicGeyserPlugin {
@@ -130,18 +127,24 @@ impl GeyserPlugin for QuicGeyserPlugin {
         &self,
         slot: Slot,
         parent: Option<u64>,
-        status: SlotStatus,
+        status: &SlotStatus,
     ) -> PluginResult<()> {
         // Todo
         let Some(quic_server) = &self.quic_server else {
             return Ok(());
         };
-        let commitment_level = match status {
-            SlotStatus::Processed => CommitmentConfig::processed(),
-            SlotStatus::Rooted => CommitmentConfig::finalized(),
-            SlotStatus::Confirmed => CommitmentConfig::confirmed(),
+        let quic_slot_status = match status {
+            SlotStatus::Processed => QuicSlotStatus::Processed,
+            SlotStatus::Rooted => QuicSlotStatus::Finalized,
+            SlotStatus::Confirmed => QuicSlotStatus::Confirmed,
+            SlotStatus::FirstShredReceived => QuicSlotStatus::FirstShredReceived,
+            SlotStatus::Completed => QuicSlotStatus::LastShredReceived,
+            SlotStatus::CreatedBank => {
+                return Ok(());
+            }
+            SlotStatus::Dead(_) => QuicSlotStatus::Dead,
         };
-        let slot_message = ChannelMessage::Slot(slot, parent.unwrap_or_default(), commitment_level);
+        let slot_message = ChannelMessage::Slot(slot, parent.unwrap_or_default(), quic_slot_status);
 
         if let Some(block_channel) = &self.block_builder_channel {
             let _ = block_channel.send(slot_message.clone());

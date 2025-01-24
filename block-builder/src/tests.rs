@@ -10,14 +10,13 @@ use itertools::Itertools;
 use quic_geyser_common::{
     channel_message::{AccountData, ChannelMessage},
     types::{
-        block_meta::BlockMeta,
+        block_meta::{BlockMeta, SlotStatus},
         slot_identifier::SlotIdentifier,
         transaction::{Transaction, TransactionMeta},
     },
 };
 use solana_sdk::{
     account::Account,
-    commitment_config::CommitmentConfig,
     hash::Hash,
     message::{
         v0::{LoadedAddresses, Message as SolanaMessage},
@@ -884,7 +883,7 @@ fn test_block_creation_incomplete_slot() {
         .send(ChannelMessage::Transaction(Box::new(tx2.clone())))
         .unwrap();
     channelmsg_sx
-        .send(ChannelMessage::Slot(5, 4, CommitmentConfig::processed()))
+        .send(ChannelMessage::Slot(5, 4, SlotStatus::Processed))
         .unwrap();
 
     let tx3 = Transaction {
@@ -926,7 +925,7 @@ fn test_block_creation_incomplete_slot() {
     sleep(Duration::from_millis(1));
     assert_eq!(msg_rx.try_recv(), Err(TryRecvError::Empty));
     channelmsg_sx
-        .send(ChannelMessage::Slot(5, 4, CommitmentConfig::finalized()))
+        .send(ChannelMessage::Slot(5, 4, SlotStatus::Finalized))
         .unwrap();
     sleep(Duration::from_millis(1));
 

@@ -59,7 +59,7 @@ impl Message {
 mod tests {
     use itertools::Itertools;
     use rand::{rngs::ThreadRng, Rng};
-    use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
+    use solana_sdk::pubkey::Pubkey;
 
     use crate::types::{
         account::Account,
@@ -76,7 +76,15 @@ mod tests {
             0 => Message::SlotMsg(SlotMeta {
                 slot: rng.gen(),
                 parent: rng.gen(),
-                commitment_config: CommitmentConfig::processed(),
+                slot_status: match rng.gen::<u8>() % 6 {
+                    0 => crate::types::block_meta::SlotStatus::Processed,
+                    1 => crate::types::block_meta::SlotStatus::Confirmed,
+                    2 => crate::types::block_meta::SlotStatus::Finalized,
+                    3 => crate::types::block_meta::SlotStatus::FirstShredReceived,
+                    4 => crate::types::block_meta::SlotStatus::LastShredReceived,
+                    5 => crate::types::block_meta::SlotStatus::Dead,
+                    _ => unreachable!(),
+                },
             }),
             1 => {
                 let data_length = rng.gen_range(10..128);
@@ -116,7 +124,7 @@ mod tests {
         let message = Message::SlotMsg(SlotMeta {
             slot: 73282,
             parent: 8392983,
-            commitment_config: CommitmentConfig::finalized(),
+            slot_status: crate::types::block_meta::SlotStatus::Finalized,
         });
         let binary = message.to_binary_stream();
         assert_eq!(binary.len(), 32);
@@ -127,7 +135,7 @@ mod tests {
         let message = Message::SlotMsg(SlotMeta {
             slot: 73282,
             parent: 8392983,
-            commitment_config: CommitmentConfig::finalized(),
+            slot_status: crate::types::block_meta::SlotStatus::Finalized,
         });
         let binary = message.to_binary_stream();
         let (msg_2, _) = Message::from_binary_stream(&binary).unwrap();

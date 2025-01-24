@@ -12,7 +12,10 @@ use std::{
 use clap::Parser;
 use cli::Args;
 use quic_geyser_client::non_blocking::client::Client;
-use quic_geyser_common::{filters::Filter, types::connections_parameters::ConnectionParameters};
+use quic_geyser_common::{
+    filters::Filter,
+    types::{block_meta::SlotStatus, connections_parameters::ConnectionParameters},
+};
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::commitment_config::CommitmentConfig;
 
@@ -177,7 +180,7 @@ fn blocking(args: Args, client_stats: ClientStats, break_thread: Arc<AtomicBool>
                     client_stats
                         .slot_notifications
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if slot.commitment_config == CommitmentConfig::processed() {
+                    if slot.slot_status == SlotStatus::FirstShredReceived {
                         client_stats
                             .slot_slot
                             .store(slot.slot, std::sync::atomic::Ordering::Relaxed);
@@ -298,7 +301,7 @@ async fn non_blocking(args: Args, client_stats: ClientStats, break_thread: Arc<A
                     client_stats
                         .slot_notifications
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if slot.commitment_config == CommitmentConfig::processed() {
+                    if slot.slot_status == SlotStatus::FirstShredReceived {
                         client_stats
                             .slot_slot
                             .store(slot.slot, std::sync::atomic::Ordering::Relaxed);

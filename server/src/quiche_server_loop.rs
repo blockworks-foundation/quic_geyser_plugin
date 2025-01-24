@@ -133,13 +133,13 @@ fn channel_message_to_message_priority(
 
             (Message::AccountMsg(geyser_account), 3)
         }
-        ChannelMessage::Slot(slot, parent, commitment_config) => {
+        ChannelMessage::Slot(slot, parent, slot_status) => {
             NUMBER_OF_SLOT_UPDATES.inc();
             (
                 Message::SlotMsg(SlotMeta {
                     slot,
                     parent,
-                    commitment_config,
+                    slot_status,
                 }),
                 0,
             )

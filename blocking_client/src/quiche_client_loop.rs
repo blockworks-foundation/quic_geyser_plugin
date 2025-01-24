@@ -371,7 +371,10 @@ mod tests {
         filters::Filter,
         message::Message,
         net::parse_host_port,
-        types::{block_meta::SlotMeta, connections_parameters::ConnectionParameters},
+        types::{
+            block_meta::{SlotMeta, SlotStatus},
+            connections_parameters::ConnectionParameters,
+        },
     };
 
     use super::client_loop;
@@ -384,11 +387,7 @@ mod tests {
         let port = 10900;
         let maximum_concurrent_streams = 100;
 
-        let message_1 = ChannelMessage::Slot(
-            3,
-            2,
-            solana_sdk::commitment_config::CommitmentConfig::confirmed(),
-        );
+        let message_1 = ChannelMessage::Slot(3, 2, SlotStatus::Confirmed);
         let message_2 = ChannelMessage::Account(
             AccountData {
                 pubkey: Pubkey::new_unique(),
@@ -514,7 +513,7 @@ mod tests {
             Message::SlotMsg(SlotMeta {
                 slot: 3,
                 parent: 2,
-                commitment_config: solana_sdk::commitment_config::CommitmentConfig::confirmed()
+                slot_status: SlotStatus::Confirmed
             })
         );
 

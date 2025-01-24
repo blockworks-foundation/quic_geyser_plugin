@@ -68,13 +68,13 @@ mod tests {
     use circular_buffer::CircularBuffer;
     use itertools::Itertools;
     use rand::{rngs::ThreadRng, Rng};
-    use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
+    use solana_sdk::pubkey::Pubkey;
 
     use crate::{
         message::Message,
         types::{
             account::Account,
-            block_meta::{BlockMeta, SlotMeta},
+            block_meta::{BlockMeta, SlotMeta, SlotStatus},
             slot_identifier::SlotIdentifier,
         },
     };
@@ -101,7 +101,7 @@ mod tests {
             0 => Message::SlotMsg(SlotMeta {
                 slot: rng.gen(),
                 parent: rng.gen(),
-                commitment_config: CommitmentConfig::processed(),
+                slot_status: SlotStatus::Processed,
             }),
             1 => {
                 let data_length = rng.gen_range(10..128);

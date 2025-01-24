@@ -8,7 +8,7 @@ use quic_geyser_common::{
 };
 use quic_geyser_server::quic_server::QuicServer;
 use rand::{thread_rng, Rng};
-use solana_sdk::{account::Account, commitment_config::CommitmentConfig, pubkey::Pubkey};
+use solana_sdk::{account::Account, pubkey::Pubkey};
 use std::time::Duration;
 
 pub mod cli;
@@ -65,21 +65,35 @@ pub fn main() {
             .send_message(ChannelMessage::Slot(
                 slot,
                 slot - 1,
-                CommitmentConfig::processed(),
+                quic_geyser_common::types::block_meta::SlotStatus::FirstShredReceived,
+            ))
+            .unwrap();
+        quic_server
+            .send_message(ChannelMessage::Slot(
+                slot,
+                slot - 1,
+                quic_geyser_common::types::block_meta::SlotStatus::LastShredReceived,
+            ))
+            .unwrap();
+        quic_server
+            .send_message(ChannelMessage::Slot(
+                slot,
+                slot - 1,
+                quic_geyser_common::types::block_meta::SlotStatus::Processed,
             ))
             .unwrap();
         quic_server
             .send_message(ChannelMessage::Slot(
                 slot - 1,
                 slot - 2,
-                CommitmentConfig::confirmed(),
+                quic_geyser_common::types::block_meta::SlotStatus::Confirmed,
             ))
             .unwrap();
         quic_server
             .send_message(ChannelMessage::Slot(
                 slot - 2,
                 slot - 3,
-                CommitmentConfig::finalized(),
+                quic_geyser_common::types::block_meta::SlotStatus::Finalized,
             ))
             .unwrap();
         for i in 1..args.accounts_per_second + 1 {

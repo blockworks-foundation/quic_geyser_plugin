@@ -76,15 +76,23 @@ pub fn build_blocks(
                     }
                 }
             }
-            ChannelMessage::Slot(slot, _parent_slot, commitment) => {
-                if commitment.is_finalized() {
-                    // dispactch partially build blocks if not already dispatched
-                    dispatch_partial_block(
-                        &mut partially_build_blocks,
-                        slot,
-                        &output,
-                        compression_type,
-                    );
+            ChannelMessage::Slot(slot, _parent_slot, slot_status) => {
+                match slot_status {
+                    quic_geyser_common::types::block_meta::SlotStatus::Finalized => {
+                        // dispactch partially build blocks if not already dispatched
+                        dispatch_partial_block(
+                            &mut partially_build_blocks,
+                            slot,
+                            &output,
+                            compression_type,
+                        );
+                    }
+                    quic_geyser_common::types::block_meta::SlotStatus::Dead => {
+                        partially_build_blocks.remove(&slot);
+                    }
+                    _ => {
+                        // do nothing
+                    }
                 }
             }
             ChannelMessage::BlockMeta(meta) => {
