@@ -240,7 +240,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
             return Ok(());
         };
 
-        let ReplicaBlockInfoVersions::V0_0_3(blockinfo) = blockinfo else {
+        let ReplicaBlockInfoVersions::V0_0_4(blockinfo) = blockinfo else {
             return Err(GeyserPluginError::AccountsUpdateError {
                 msg: "Unsupported account info version".to_string(),
             });
@@ -251,7 +251,7 @@ impl GeyserPlugin for QuicGeyserPlugin {
             slot: blockinfo.slot,
             parent_blockhash: blockinfo.parent_blockhash.to_string(),
             blockhash: blockinfo.blockhash.to_string(),
-            rewards: blockinfo.rewards.to_vec(),
+            rewards: blockinfo.rewards.rewards.to_vec(),
             block_height: blockinfo.block_height,
             executed_transaction_count: blockinfo.executed_transaction_count,
             entries_count: blockinfo.entry_count,
